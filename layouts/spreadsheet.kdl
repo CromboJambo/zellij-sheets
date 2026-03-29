@@ -1,0 +1,94 @@
+# Zellij Sheets - Spreadsheet Viewing Layout
+# This layout provides a dedicated pane for viewing spreadsheet data
+# with keyboard navigation and a clean interface
+
+# Default tab configuration
+default_tab layout {
+    # Split the screen vertically
+    pane size=1:2 split_direction="Right" {
+        # Main spreadsheet viewer pane (takes up 2/3 of the screen)
+        pane size=1:3 split_direction="Down" {
+            # Spreadsheet viewer pane
+            spawn "zellij" "plugin" "zellij-sheets" "--input" "/path/to/your/data.csv"
+
+            # Optional: Status or info pane below
+            pane size=1:1 {
+                # You can add other tools here
+                # For example: a terminal, file explorer, or notes
+            }
+        }
+
+        # Secondary pane (1/3 of the screen)
+        pane size=1:1 {
+            # This could be:
+            # - A terminal for running queries
+            # - A file explorer
+            # - Another spreadsheet viewer
+            # - Any other tool you need
+            spawn "zellij" "new-pane" "-l" "bottom"
+        }
+    }
+}
+
+# Optional: Key bindings for quick navigation
+keybinds default {
+    bind "Alt" "h" { toggle_option "auto_focus" "false"; }
+    bind "Alt" "l" { toggle_option "auto_focus" "true"; }
+    bind "Alt" "j" { move_focus "down"; }
+    bind "Alt" "k" { move_focus "up"; }
+    bind "Alt" "Enter" { switch_to_mode "normal"; }
+}
+
+# Alternative layout for focused spreadsheet viewing
+layout "focused-spreadsheet" {
+    default_tab layout {
+        pane size=1:1 split_direction="Down" {
+            pane size=1:4 {
+                spawn "zellij" "plugin" "zellij-sheets" "--input" "/path/to/your/data.csv"
+            }
+            pane size=1:1 {
+                spawn "zellij" "new-pane" "-l" "bottom"
+            }
+        }
+    }
+}
+
+# Full-screen layout (maximum space for spreadsheet)
+layout "fullscreen-spreadsheet" {
+    default_tab layout {
+        pane size=1:1 split_direction="Down" {
+            pane size=1:4 {
+                spawn "zellij" "plugin" "zellij-sheets" "--input" "/path/to/your/data.csv"
+            }
+            pane size=1:1 {
+                spawn "zellij" "new-pane" "-l" "right"
+            }
+        }
+    }
+}
+
+# Layout with search capability (future enhancement)
+layout "spreadsheet-with-search" {
+    default_tab layout {
+        pane size=1:1 split_direction="Down" {
+            pane size=1:4 {
+                spawn "zellij" "plugin" "zellij-sheets" "--input" "/path/to/your/data.csv"
+            }
+            pane size=1:1 {
+                spawn "zellij" "new-pane" "-l" "bottom"
+            }
+        }
+    }
+}
+
+# Quick navigation bindings in normal mode
+keybinds "normal" {
+    bind "q" { quit; }
+    bind "Ctrl" "c" { quit; }
+    bind "h" { move_focus "left"; }
+    bind "l" { move_focus "right"; }
+    bind "j" { move_focus "down"; }
+    bind "k" { move_focus "up"; }
+    bind "Enter" { switch_to_mode "normal"; }
+    bind "/" { switch_to_mode "search"; }
+}

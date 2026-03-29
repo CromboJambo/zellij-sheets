@@ -1,0 +1,98 @@
+# Zellij Sheets - Default Configuration File
+# This configuration defines the default appearance and behavior of the spreadsheet viewer
+
+# Theme configuration
+[theme]
+# Background color (hex format or named color)
+background = "#000000"
+
+# Text color
+text = "#FFFFFF"
+
+# Header background color
+header_background = "#0055AA"
+
+# Header text color
+header_text = "#FFFFFF"
+
+# Selected row background color
+selected_background = "#00AAFF"
+
+# Selected row text color
+selected_text = "#000000"
+
+# Column header background color
+column_header_background = "#004488"
+
+# Column header text color
+column_header_text = "#00FFFF"
+
+# Accent colors for different data types
+[theme.accent_colors]
+# Number color
+number = "#00FF00"
+
+# String color
+string = "#FFFF00"
+
+# Boolean color
+boolean = "#FF00FF"
+
+# Date color
+date = "#FF8800"
+
+# Null color
+null = "#888888"
+
+# Display configuration
+[display]
+# Number of preview rows to show by default
+preview_rows = 20
+
+# Show column numbers in the header
+show_column_numbers = true
+
+# Show row numbers in the grid
+show_row_numbers = false
+
+# Truncate long cell values to fit the screen
+truncate_long_values = true
+
+# Maximum length of a cell value before truncation
+max_cell_length = 50
+
+# Show data type indicators for each column
+show_data_types = false
+
+# Behavior configuration
+[behavior]
+# Auto-refresh when file changes (requires polling)
+auto_refresh = false
+
+# Auto-refresh interval in seconds
+auto_refresh_interval = 5
+
+# Default scroll speed multiplier
+[behavior.scroll_speed]
+# Normal scroll speed
+normal = 1.0
+
+# Fast scroll speed
+fast = 3.0
+
+# Page size for page navigation (number of rows per page)
+page_size = 10
+
+# Column configuration
+[column]
+# Auto-width columns based on content length
+auto_width = true
+
+# Fixed column widths (overrides auto_width)
+fixed_widths = []
+
+# Minimum column width
+min_column_width = 8
+
+# Maximum column width
+max_column_width = 40
