@@ -204,6 +204,9 @@ pub enum ConfigError {
     #[error("TOML parsing error: {0}")]
     TomlError(#[from] toml::de::Error),
 
+    #[error("TOML serialization error: {0}")]
+    TomlSerializeError(#[from] toml::ser::Error),
+
     #[error("Invalid configuration: {0}")]
     InvalidConfig(String),
 }

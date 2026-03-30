@@ -1,17 +1,11 @@
-// Zellij Sheets - State Management Module
-// Handles application state, data management, and navigation
-
 use crate::config::SheetsConfig;
-use crate::data_loader::load_data;
-use polars::prelude::*;
+use crate::data_loader::{load_data, LoadedData};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::SystemTime;
 use thiserror::Error;
 
-/// Error types for state management
 #[derive(Debug, Error)]
 pub enum StateError {
     #[error("IO error: {0}")]
@@ -20,98 +14,26 @@ pub enum StateError {
     #[error("Data loading error: {0}")]
     DataLoadError(#[from] crate::data_loader::DataLoaderError),
 
-    #[error("Polars error: {0}")]
-    PolarsError(#[from] PolarsError),
-
     #[error("State error: {0}")]
     StateError(String),
 }
 
-/// Result type for state operations
 pub type Result<T> = std::result::Result<T, StateError>;
 
-/// Application state structure
-#[derive(Clone)]
-pub struct SheetsState {
-    /// Configuration
-    config: Arc<SheetsConfig>,
-
-    /// Data frame with spreadsheet data
-    data_frame: Arc<RwLock<DataFrame>>,
-
-    /// Column names
-    column_names: Arc<RwLock<Vec<String>>>,
-
-    /// Row count
-    row_count: Arc<RwLock<usize>>,
-
-    /// Selected row index
-    selected_row: Arc<RwLock<usize>>,
-
-    /// Scroll offset (number of rows to skip)
-    scroll_offset: Arc<RwLock<usize>>,
-
-    /// Current file path
-    file_path: Arc<RwLock<Option<PathBuf>>>,
-
-    /// File modification time
-    file_mod_time: Arc<RwLock<Option<SystemTime>>>,
-
-    /// View mode (list, grid, compact)
-    view_mode: Arc<RwLock<ViewMode>>,
-
-    /// Sort column and direction
-    sort_column: Arc<RwLock<Option<String>>>,
-    sort_direction: Arc<RwLock<SortDirection>>,
-
-    /// Filter expression
-    filter_expr: Arc<RwLock<Option<String>>>,
-
-    /// Search query
-    search_query: Arc<RwLock<Option<String>>>,
-
-    /// Last error message
-    last_error: Arc<RwLock<Option<String>>>,
-
-    /// Status messages
-    status_messages: Arc<RwLock<Vec<StatusMessage>>>,
-
-    /// View settings
-    show_row_numbers: Arc<RwLock<bool>>,
-    show_column_numbers: Arc<RwLock<bool>>,
-    show_grid_lines: Arc<RwLock<bool>>,
-    show_data_types: Arc<RwLock<bool>>,
-}
-
-/// View mode enumeration
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ViewMode {
-    /// Full grid view
     Grid,
-    /// Compact list view
     List,
-    /// Compact grid view
     Compact,
-    /// Raw data view
     Raw,
 }
 
-/// Sort direction enumeration
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SortDirection {
     Ascending,
     Descending,
 }
 
-/// Status message structure
-#[derive(Debug, Clone)]
-pub struct StatusMessage {
-    pub message: String,
-    pub timestamp: SystemTime,
-    pub level: StatusLevel,
-}
-
-/// Status level enumeration
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum StatusLevel {
     Info,
@@ -120,7 +42,47 @@ pub enum StatusLevel {
     Error,
 }
 
-/// Default configuration for SheetsState
+#[derive(Debug, Clone)]
+pub struct StatusMessage {
+    pub message: String,
+    pub timestamp: SystemTime,
+    pub level: StatusLevel,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DataType {
+    Number,
+    Boolean,
+    Empty,
+    String,
+}
+
+#[derive(Clone)]
+pub struct SheetsState {
+    headers: Vec<String>,
+    rows: Vec<Vec<String>>,
+    scroll_row: usize,
+    selected_row: usize,
+    max_scroll_row: usize,
+    file_name: String,
+    width: usize,
+    height: usize,
+    config: Arc<SheetsConfig>,
+    view_mode: ViewMode,
+    sort_column: Option<String>,
+    sort_direction: SortDirection,
+    filter_expr: Option<String>,
+    search_query: Option<String>,
+    file_path: Option<PathBuf>,
+    file_mod_time: Option<SystemTime>,
+    last_error: Option<String>,
+    status_messages: Vec<StatusMessage>,
+    show_row_numbers: bool,
+    show_column_numbers: bool,
+    show_grid_lines: bool,
+    show_data_types: bool,
+}
+
 impl Default for SheetsState {
     fn default() -> Self {
         Self::new(Arc::new(SheetsConfig::default()))
@@ -128,582 +90,417 @@ impl Default for SheetsState {
 }
 
 impl SheetsState {
-    /// Create a new state instance
     pub fn new(config: Arc<SheetsConfig>) -> Self {
         Self {
+            headers: Vec::new(),
+            rows: Vec::new(),
+            scroll_row: 0,
+            selected_row: 0,
+            max_scroll_row: 0,
+            file_name: String::new(),
+            width: 80,
+            height: 24,
             config,
-            data_frame: Arc::new(RwLock::new(DataFrame::default())),
-            column_names: Arc::new(RwLock::new(vec![])),
-            row_count: Arc::new(RwLock::new(0)),
-            selected_row: Arc::new(RwLock::new(0)),
-            scroll_offset: Arc::new(RwLock::new(0)),
-            file_path: Arc::new(RwLock::new(None)),
-            file_mod_time: Arc::new(RwLock::new(None)),
-            view_mode: Arc::new(RwLock::new(ViewMode::Grid)),
-            sort_column: Arc::new(RwLock::new(None)),
-            sort_direction: Arc::new(RwLock::new(SortDirection::Ascending)),
-            filter_expr: Arc::new(RwLock::new(None)),
-            search_query: Arc::new(RwLock::new(None)),
-            last_error: Arc::new(RwLock::new(None)),
-            status_messages: Arc::new(RwLock::new(vec![])),
-            show_row_numbers: Arc::new(RwLock::new(false)),
-            show_column_numbers: Arc::new(RwLock::new(false)),
-            show_grid_lines: Arc::new(RwLock::new(true)),
-            show_data_types: Arc::new(RwLock::new(false)),
+            view_mode: ViewMode::Grid,
+            sort_column: None,
+            sort_direction: SortDirection::Ascending,
+            filter_expr: None,
+            search_query: None,
+            file_path: None,
+            file_mod_time: None,
+            last_error: None,
+            status_messages: Vec::new(),
+            show_row_numbers: false,
+            show_column_numbers: true,
+            show_grid_lines: true,
+            show_data_types: false,
         }
     }
 
-    /// Initialize state with data
-    pub fn init(&self, data: DataFrame, headers: Vec<String>) -> Result<()> {
-        let mut df = data.clone();
-        let mut headers = headers.clone();
-
-        // Apply any filters
-        if let Some(expr) = self.get_filter_expr()? {
-            df = df.filter(&expr)?;
-        }
-
-        // Apply search filter
-        if let Some(query) = self.get_search_query()? {
-            df = self.apply_search_filter(df, &query)?;
-        }
-
-        // Apply sorting
-        if let Some(col) = self.get_sort_column()? {
-            df = self.apply_sort(df, &col, self.get_sort_direction()?)?;
-        }
-
-        // Update state
-        let mut column_names = self.column_names.write().unwrap();
-        let mut row_count = self.row_count.write().unwrap();
-        let mut data_frame = self.data_frame.write().unwrap();
-
-        *column_names = headers;
-        *row_count = df.height();
-        *data_frame = df;
-
+    pub fn init(&mut self, data: LoadedData) -> Result<()> {
+        self.headers = data.headers;
+        self.rows = data.rows;
+        self.selected_row = 0;
+        self.scroll_row = 0;
+        self.sync_bounds();
         Ok(())
     }
 
-    /// Load data from file
-    pub fn load_file(&self, path: PathBuf) -> Result<()> {
+    pub fn load_file(&mut self, path: PathBuf) -> Result<()> {
         let data = load_data(&path)?;
-        let headers = data
-            .get_column_names()
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-
-        self.init(data, headers)?;
-
-        let mut file_path = self.file_path.write().unwrap();
-        let mut file_mod_time = self.file_mod_time.write().unwrap();
-
-        *file_path = Some(path.clone());
-        *file_mod_time = std::fs::metadata(&path).map(|m| m.modified()).ok();
-
+        self.file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+        self.file_mod_time = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+        self.file_path = Some(path.clone());
+        self.init(data)?;
         self.add_status_message(
             StatusMessage {
-                message: format!("Loaded: {}", path.display()),
+                message: format!("Loaded {}", path.display()),
                 timestamp: SystemTime::now(),
                 level: StatusLevel::Success,
             },
             5,
         );
-
         Ok(())
     }
 
-    /// Apply search filter to data frame
-    fn apply_search_filter(&self, df: DataFrame, query: &str) -> Result<DataFrame> {
-        let lower_query = query.to_lowercase();
-        let columns = df.get_column_names();
-        let mut filter_exprs = Vec::new();
+    pub fn resize(&mut self, width: usize, height: usize) {
+        self.width = width.max(20);
+        self.height = height.max(8);
+        self.sync_bounds();
+    }
 
-        for col_name in columns {
-            if let Ok(col) = df.column(col_name) {
-                match col.dtype() {
-                    DataType::String => {
-                        if let Ok(strings) = col.str() {
-                            let mask = strings
-                                .iter()
-                                .map(|s| s.to_lowercase().contains(&lower_query))
-                                .collect::<Vec<bool>>();
+    pub fn scroll_up(&mut self) {
+        if self.scroll_row > 0 {
+            self.scroll_row -= 1;
+        }
+    }
 
-                            if let Ok(expr) =
-                                BooleanChunked::from_iter(mask).into_series().into_frame()
-                            {
-                                filter_exprs.push(expr);
-                            }
-                        }
-                    }
-                    _ => {}
-                }
+    pub fn scroll_down(&mut self) {
+        if self.scroll_row < self.max_scroll_row {
+            self.scroll_row += 1;
+        }
+    }
+
+    pub fn scroll_left(&mut self) {}
+
+    pub fn scroll_right(&mut self) {}
+
+    pub fn page_up(&mut self) {
+        let page_size = self.config.behavior.page_size.max(1);
+        self.scroll_row = self.scroll_row.saturating_sub(page_size);
+        self.selected_row = self.selected_row.saturating_sub(page_size);
+    }
+
+    pub fn page_down(&mut self) {
+        let page_size = self.config.behavior.page_size.max(1);
+        self.scroll_row = (self.scroll_row + page_size).min(self.max_scroll_row);
+        self.selected_row = (self.selected_row + page_size).min(self.last_row_index());
+    }
+
+    pub fn go_to_top(&mut self) {
+        self.scroll_row = 0;
+        self.selected_row = 0;
+    }
+
+    pub fn go_to_bottom(&mut self) {
+        self.scroll_row = self.max_scroll_row;
+        self.selected_row = self.last_row_index();
+    }
+
+    pub fn select_up(&mut self) {
+        if self.selected_row > 0 {
+            self.selected_row -= 1;
+            if self.selected_row < self.scroll_row {
+                self.scroll_row = self.selected_row;
             }
         }
-
-        if let Some(first) = filter_exprs.first() {
-            let mut filter = first.clone();
-            for expr in filter_exprs.iter().skip(1) {
-                filter = filter & expr.clone();
-            }
-            Ok(df.filter(&filter)?)
-        } else {
-            Ok(df)
-        }
     }
 
-    /// Apply sorting to data frame
-    fn apply_sort(
-        &self,
-        df: DataFrame,
-        column: &str,
-        direction: SortDirection,
-    ) -> Result<DataFrame> {
-        match direction {
-            SortDirection::Ascending => df.sort([column], SortMultipleOptions::default()),
-            SortDirection::Descending => {
-                let df = df.sort([column], SortMultipleOptions::default());
-                df.sort([column], SortMultipleOptions::default().with_reverse(true))
+    pub fn select_down(&mut self) {
+        if self.selected_row < self.last_row_index() {
+            self.selected_row += 1;
+            if self.selected_row >= self.scroll_row + self.visible_rows() {
+                self.scroll_row = self
+                    .selected_row
+                    .saturating_sub(self.visible_rows().saturating_sub(1));
             }
         }
     }
 
-    /// Navigate to previous row
-    pub fn select_up(&self) {
-        let mut selected_row = self.selected_row.write().unwrap();
-        let scroll_offset = self.scroll_offset.read().unwrap();
-
-        if *selected_row > 0 {
-            *selected_row -= 1;
-        }
-
-        // Auto-scroll if selected row is above viewport
-        if *selected_row < *scroll_offset {
-            *scroll_offset = *selected_row;
-        }
-    }
-
-    /// Navigate to next row
-    pub fn select_down(&self) {
-        let mut selected_row = self.selected_row.write().unwrap();
-        let scroll_offset = self.scroll_offset.read().unwrap();
-        let row_count = self.row_count.read().unwrap();
-
-        if *selected_row < *row_count - 1 {
-            *selected_row += 1;
-        }
-
-        // Auto-scroll if selected row is below viewport
-        if *selected_row >= *scroll_offset + 20 {
-            *scroll_offset = *selected_row.saturating_sub(19);
-        }
-    }
-
-    /// Navigate to first row
-    pub fn go_to_top(&self) {
-        let mut selected_row = self.selected_row.write().unwrap();
-        let mut scroll_offset = self.scroll_offset.write().unwrap();
-
-        *selected_row = 0;
-        *scroll_offset = 0;
-    }
-
-    /// Navigate to last row
-    pub fn go_to_bottom(&self) {
-        let mut selected_row = self.selected_row.write().unwrap();
-        let mut scroll_offset = self.scroll_offset.write().unwrap();
-        let row_count = self.row_count.read().unwrap();
-
-        *selected_row = row_count.saturating_sub(1);
-        *scroll_offset = row_count.saturating_sub(20);
-    }
-
-    /// Page up
-    pub fn page_up(&self) {
-        let mut scroll_offset = self.scroll_offset.write().unwrap();
-        let row_count = self.row_count.read().unwrap();
-
-        *scroll_offset = scroll_offset.saturating_sub(10);
-    }
-
-    /// Page down
-    pub fn page_down(&self) {
-        let mut scroll_offset = self.scroll_offset.write().unwrap();
-        let row_count = self.row_count.read().unwrap();
-
-        *scroll_offset = scroll_offset.saturating_add(10);
-        if *scroll_offset >= row_count {
-            *scroll_offset = row_count.saturating_sub(1);
-        }
-    }
-
-    /// Set search query
-    pub fn set_search_query(&self, query: Option<String>) {
-        let mut search_query = self.search_query.write().unwrap();
-        let query_clone = query.clone();
-        *search_query = query;
-
-        if query_clone.is_some() {
-            self.add_status_message(
-                StatusMessage {
-                    message: format!("Searching: {}", query_clone.as_ref().unwrap()),
-                    timestamp: SystemTime::now(),
-                    level: StatusLevel::Info,
-                },
-                3,
-            );
-        }
-    }
-
-    /// Get search query
-    pub fn get_search_query(&self) -> Result<Option<String>> {
-        Ok(self.search_query.read().unwrap().clone())
-    }
-
-    /// Set filter expression
-    pub fn set_filter_expr(&self, expr: Option<String>) {
-        let mut filter_expr = self.filter_expr.write().unwrap();
-        let expr_clone = expr.clone();
-        *filter_expr = expr;
-
-        if expr_clone.is_some() {
-            self.add_status_message(
-                StatusMessage {
-                    message: format!("Filter: {}", expr_clone.as_ref().unwrap()),
-                    timestamp: SystemTime::now(),
-                    level: StatusLevel::Info,
-                },
-                3,
-            );
-        }
-    }
-
-    /// Get filter expression
-    pub fn get_filter_expr(&self) -> Result<Option<String>> {
-        Ok(self.filter_expr.read().unwrap().clone())
-    }
-
-    /// Set sort column and direction
-    pub fn set_sort(&self, column: Option<String>, direction: SortDirection) {
-        let mut sort_column = self.sort_column.write().unwrap();
-        let mut sort_direction = self.sort_direction.write().unwrap();
-        let column_clone = column.clone();
-        let direction_clone = direction.clone();
-
-        *sort_column = column;
-        *sort_direction = direction;
-
-        if column_clone.is_some() {
-            let dir_str = match direction_clone {
-                SortDirection::Ascending => "ascending",
-                SortDirection::Descending => "descending",
-            };
-            self.add_status_message(
-                StatusMessage {
-                    message: format!("Sort: {} ({})", column_clone.as_ref().unwrap(), dir_str),
-                    timestamp: SystemTime::now(),
-                    level: StatusLevel::Info,
-                },
-                3,
-            );
-        }
-    }
-
-    /// Get sort column
-    pub fn get_sort_column(&self) -> Result<Option<String>> {
-        Ok(self.sort_column.read().unwrap().clone())
-    }
-
-    /// Get sort direction
-    pub fn get_sort_direction(&self) -> Result<SortDirection> {
-        Ok(self.sort_direction.read().unwrap().clone())
-    }
-
-    /// Quit application
-    pub fn quit(&self) {
+    pub fn quit(&mut self) {
         self.add_status_message(
             StatusMessage {
-                message: "Goodbye!".to_string(),
+                message: "Exiting".to_string(),
                 timestamp: SystemTime::now(),
                 level: StatusLevel::Info,
             },
-            5,
+            1,
         );
     }
 
-    /// Add status message
-    pub fn add_status_message(&self, message: StatusMessage, duration: u64) {
-        let mut messages = self.status_messages.write().unwrap();
+    pub fn scroll_row(&self) -> usize {
+        self.scroll_row
+    }
 
-        messages.push(message);
+    pub fn selected_row(&self) -> usize {
+        self.selected_row
+    }
 
-        // Remove old messages
-        messages.retain(|msg| {
-            if msg.timestamp.elapsed().unwrap().as_secs() < duration {
-                true
-            } else {
-                false
-            }
+    pub fn row_count(&self) -> usize {
+        self.rows.len()
+    }
+
+    pub fn col_count(&self) -> usize {
+        self.headers.len()
+    }
+
+    pub fn headers(&self) -> Option<&Vec<String>> {
+        (!self.headers.is_empty()).then_some(&self.headers)
+    }
+
+    pub fn file_name(&self) -> &str {
+        if self.file_name.is_empty() {
+            "No file loaded"
+        } else {
+            &self.file_name
+        }
+    }
+
+    pub fn visible_rows(&self) -> usize {
+        self.height.saturating_sub(5).max(1)
+    }
+
+    pub fn row_range(&self) -> (usize, usize) {
+        let start = self.scroll_row;
+        let end = (start + self.visible_rows()).min(self.row_count());
+        (start, end)
+    }
+
+    pub fn get_cell(&self, row: usize, col: usize) -> Option<String> {
+        self.rows.get(row)?.get(col).cloned()
+    }
+
+    pub fn get_row(&self, row: usize) -> Option<Vec<String>> {
+        self.rows.get(row).cloned()
+    }
+
+    pub fn get_data_type(&self, col: usize) -> Option<DataType> {
+        if col >= self.col_count() {
+            return None;
+        }
+
+        self.rows
+            .iter()
+            .filter_map(|row| row.get(col))
+            .find(|value| !value.trim().is_empty())
+            .map(|value| infer_data_type(value))
+            .or(Some(DataType::Empty))
+    }
+
+    pub fn at_top(&self) -> bool {
+        self.scroll_row == 0
+    }
+
+    pub fn at_bottom(&self) -> bool {
+        self.scroll_row >= self.max_scroll_row
+    }
+
+    pub fn add_status_message(&mut self, message: StatusMessage, duration_secs: u64) {
+        self.status_messages.push(message);
+        self.status_messages.retain(|message| {
+            message
+                .timestamp
+                .elapsed()
+                .map(|elapsed| elapsed.as_secs() < duration_secs)
+                .unwrap_or(true)
         });
     }
 
-    /// Get status messages
     pub fn get_status_messages(&self) -> Result<Vec<StatusMessage>> {
-        Ok(self.status_messages.read().unwrap().clone())
+        Ok(self.status_messages.clone())
     }
 
-    /// Clear status messages
-    pub fn clear_status_messages(&self) {
-        self.status_messages.write().unwrap().clear();
+    pub fn clear_status_messages(&mut self) {
+        self.status_messages.clear();
     }
 
-    /// Set view mode
-    pub fn set_view_mode(&self, mode: ViewMode) {
-        let mut view_mode = self.view_mode.write().unwrap();
-        *view_mode = mode;
-
-        self.add_status_message(
-            StatusMessage {
-                message: format!("View mode: {:?}", mode),
-                timestamp: SystemTime::now(),
-                level: StatusLevel::Info,
-            },
-            3,
-        );
+    pub fn set_view_mode(&mut self, mode: ViewMode) {
+        self.view_mode = mode;
     }
 
-    /// Get view mode
     pub fn get_view_mode(&self) -> Result<ViewMode> {
-        Ok(self.view_mode.read().unwrap().clone())
+        Ok(self.view_mode.clone())
     }
 
-    /// Set file path
-    pub fn set_file_path(&self, path: PathBuf) {
-        self.file_path.write().unwrap().replace(path);
+    pub fn set_search_query(&mut self, query: Option<String>) {
+        self.search_query = query;
     }
 
-    /// Get file path
+    pub fn get_search_query(&self) -> Result<Option<String>> {
+        Ok(self.search_query.clone())
+    }
+
+    pub fn set_filter_expr(&mut self, expr: Option<String>) {
+        self.filter_expr = expr;
+    }
+
+    pub fn get_filter_expr(&self) -> Result<Option<String>> {
+        Ok(self.filter_expr.clone())
+    }
+
+    pub fn set_sort(&mut self, column: Option<String>, direction: SortDirection) {
+        self.sort_column = column;
+        self.sort_direction = direction;
+    }
+
+    pub fn get_sort_column(&self) -> Result<Option<String>> {
+        Ok(self.sort_column.clone())
+    }
+
+    pub fn get_sort_direction(&self) -> Result<SortDirection> {
+        Ok(self.sort_direction.clone())
+    }
+
+    pub fn set_file_path(&mut self, path: PathBuf) {
+        self.file_path = Some(path);
+    }
+
     pub fn get_file_path(&self) -> Result<Option<PathBuf>> {
-        Ok(self.file_path.read().unwrap().clone())
+        Ok(self.file_path.clone())
     }
 
-    /// Set file modification time
-    pub fn set_file_mod_time(&self, time: Option<SystemTime>) {
-        self.file_mod_time.write().unwrap().replace(time);
+    pub fn set_file_mod_time(&mut self, time: Option<SystemTime>) {
+        self.file_mod_time = time;
     }
 
-    /// Get file modification time
     pub fn get_file_mod_time(&self) -> Result<Option<SystemTime>> {
-        Ok(self.file_mod_time.read().unwrap().clone())
+        Ok(self.file_mod_time)
     }
 
-    /// Get data frame
-    pub fn get_data_frame(&self) -> Result<DataFrame> {
-        Ok(self.data_frame.read().unwrap().clone())
-    }
-
-    /// Get column names
     pub fn get_column_names(&self) -> Result<Vec<String>> {
-        Ok(self.column_names.read().unwrap().clone())
+        Ok(self.headers.clone())
     }
 
-    /// Get row count
     pub fn get_row_count(&self) -> Result<usize> {
-        Ok(self.row_count.read().unwrap().clone())
+        Ok(self.row_count())
     }
 
-    /// Get column count
     pub fn get_column_count(&self) -> Result<usize> {
-        Ok(self.column_names.read().unwrap().len())
+        Ok(self.col_count())
     }
 
-    /// Get selected row
     pub fn get_selected_row(&self) -> Result<usize> {
-        Ok(self.selected_row.read().unwrap().clone())
+        Ok(self.selected_row)
     }
 
-    /// Get column names
-    pub fn get_column_names(&self) -> Result<Vec<String>> {
-        Ok(self.column_names.read().unwrap().clone())
-    }
-
-    /// Get row range for rendering
     pub fn get_row_range(&self) -> Result<(usize, usize)> {
-        let scroll_offset = self.scroll_offset.read().unwrap();
-        let row_count = self.row_count.read().unwrap();
-        let selected_row = self.selected_row.read().unwrap();
-
-        let start_row = scroll_offset;
-        let end_row = (scroll_offset + 20).min(row_count);
-
-        Ok((start_row, end_row))
+        Ok(self.row_range())
     }
 
-    /// Get width
     pub fn get_width(&self) -> Result<usize> {
-        Ok(80)
+        Ok(self.width)
     }
 
-    /// Get height
     pub fn get_height(&self) -> Result<usize> {
-        Ok(24)
+        Ok(self.height)
     }
 
-    /// Get file name
     pub fn get_file_name(&self) -> Result<String> {
-        let file_path = self.file_path.read().unwrap();
-        match file_path.as_ref() {
-            Some(path) => {
-                let name = path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("unknown")
-                    .to_string();
-                Ok(name)
-            }
-            None => Ok("No file loaded".to_string()),
-        }
+        Ok(self.file_name().to_string())
     }
 
-    /// Get config
     pub fn get_config(&self) -> Result<SheetsConfig> {
-        Ok(self.config.clone())
+        Ok((*self.config).clone())
     }
 
-    /// Set config
-    pub fn set_config(&self, config: SheetsConfig) {
+    pub fn set_config(&mut self, config: SheetsConfig) {
         self.config = Arc::new(config);
     }
 
-    /// Resize
-    pub fn resize(&self, width: usize, height: usize) {
-        // Can be used to adjust UI layout
-    }
-
-    /// Get last error
     pub fn get_last_error(&self) -> Result<Option<String>> {
-        Ok(self.last_error.read().unwrap().clone())
+        Ok(self.last_error.clone())
     }
 
-    /// Set last error
-    pub fn set_last_error(&self, error: Option<String>) {
-        self.last_error.write().unwrap().replace(error);
+    pub fn set_last_error(&mut self, error: Option<String>) {
+        self.last_error = error;
     }
 
-    /// Clear last error
-    pub fn clear_last_error(&self) {
-        self.last_error.write().unwrap().replace(None);
+    pub fn clear_last_error(&mut self) {
+        self.last_error = None;
     }
 
-    /// Set show row numbers
-    pub fn set_show_row_numbers(&self, show: bool) {
-        self.show_row_numbers.write().unwrap().replace(show);
+    pub fn set_show_row_numbers(&mut self, show: bool) {
+        self.show_row_numbers = show;
     }
 
-    /// Get show row numbers
     pub fn get_show_row_numbers(&self) -> Result<bool> {
-        Ok(self.show_row_numbers.read().unwrap().clone())
+        Ok(self.show_row_numbers)
     }
 
-    /// Set show column numbers
-    pub fn set_show_column_numbers(&self, show: bool) {
-        self.show_column_numbers.write().unwrap().replace(show);
+    pub fn set_show_column_numbers(&mut self, show: bool) {
+        self.show_column_numbers = show;
     }
 
-    /// Get show column numbers
     pub fn get_show_column_numbers(&self) -> Result<bool> {
-        Ok(self.show_column_numbers.read().unwrap().clone())
+        Ok(self.show_column_numbers)
     }
 
-    /// Set show grid lines
-    pub fn set_show_grid_lines(&self, show: bool) {
-        self.show_grid_lines.write().unwrap().replace(show);
+    pub fn set_show_grid_lines(&mut self, show: bool) {
+        self.show_grid_lines = show;
     }
 
-    /// Get show grid lines
     pub fn get_show_grid_lines(&self) -> Result<bool> {
-        Ok(self.show_grid_lines.read().unwrap().clone())
+        Ok(self.show_grid_lines)
     }
 
-    /// Set show data types
-    pub fn set_show_data_types(&self, show: bool) {
-        self.show_data_types.write().unwrap().replace(show);
+    pub fn set_show_data_types(&mut self, show: bool) {
+        self.show_data_types = show;
     }
 
-    /// Get show data types
     pub fn get_show_data_types(&self) -> Result<bool> {
-        Ok(self.show_data_types.read().unwrap().clone())
+        Ok(self.show_data_types)
     }
 
-    /// Check if file is modified
     pub fn is_file_modified(&self) -> Result<bool> {
-        let file_path = self.file_path.read().unwrap();
-        if let Some(path) = file_path.as_ref() {
-            if let Ok(metadata) = std::fs::metadata(path) {
-                if let Ok(mod_time) = metadata.modified() {
-                    if let Some(last_mod_time) = self.file_mod_time.read().unwrap().clone() {
-                        return Ok(mod_time > last_mod_time);
-                    }
-                }
-            }
-        }
-        Ok(false)
+        let Some(path) = self.file_path.as_ref() else {
+            return Ok(false);
+        };
+        let Some(last_mod_time) = self.file_mod_time else {
+            return Ok(false);
+        };
+        let current_mod_time = std::fs::metadata(path).and_then(|m| m.modified())?;
+        Ok(current_mod_time > last_mod_time)
     }
 
-    /// Get data type for column
-    pub fn get_data_type(&self, column: usize) -> Result<Option<String>> {
-        let df = self.data_frame.read().unwrap();
-        let column_names = self.column_names.read().unwrap();
+    fn sync_bounds(&mut self) {
+        self.max_scroll_row = self.row_count().saturating_sub(self.visible_rows());
+        self.scroll_row = self.scroll_row.min(self.max_scroll_row);
+        self.selected_row = self.selected_row.min(self.last_row_index());
+    }
 
-        if column >= column_names.len() {
-            return Ok(None);
-        }
-
-        let col_name = &column_names[column];
-
-        if let Ok(col) = df.column(col_name) {
-            match col.dtype() {
-                DataType::String => Ok(Some("String".to_string())),
-                DataType::Int32 => Ok(Some("Int32".to_string())),
-                DataType::Int64 => Ok(Some("Int64".to_string())),
-                DataType::Float32 => Ok(Some("Float32".to_string())),
-                DataType::Float64 => Ok(Some("Float64".to_string())),
-                DataType::Boolean => Ok(Some("Boolean".to_string())),
-                DataType::Date => Ok(Some("Date".to_string())),
-                DataType::Time => Ok(Some("Time".to_string())),
-                DataType::Datetime => Ok(Some("Datetime".to_string())),
-                DataType::Duration => Ok(Some("Duration".to_string())),
-                DataType::Null => Ok(Some("Null".to_string())),
-                _ => Ok(None),
-            }
-        } else {
-            Ok(None)
-        }
+    fn last_row_index(&self) -> usize {
+        self.row_count().saturating_sub(1)
     }
 }
 
-/// Serialize state to JSON
-pub fn serialize_state(state: &SheetsState) -> Result<String> {
-    serde_json::to_string_pretty(state)
-        .map_err(|e| StateError::StateError(format!("Serialization error: {}", e)))
+pub fn serialize_state(_state: &SheetsState) -> Result<String> {
+    Err(StateError::StateError(
+        "state serialization is not implemented".to_string(),
+    ))
 }
 
-/// Deserialize state from JSON
-pub fn deserialize_state(json: &str) -> Result<SheetsState> {
-    serde_json::from_str(json)
-        .map_err(|e| StateError::StateError(format!("Deserialization error: {}", e)))
+pub fn deserialize_state(_json: &str) -> Result<SheetsState> {
+    Err(StateError::StateError(
+        "state deserialization is not implemented".to_string(),
+    ))
 }
 
-/// Save state to file
-pub fn save_state(state: &SheetsState, path: &PathBuf) -> Result<()> {
-    let json = serialize_state(state)?;
-    std::fs::write(path, json)?;
-    Ok(())
+pub fn save_state(_state: &SheetsState, _path: &PathBuf) -> Result<()> {
+    Err(StateError::StateError(
+        "saving state is not implemented".to_string(),
+    ))
 }
 
-/// Load state from file
-pub fn load_state(path: &PathBuf) -> Result<SheetsState> {
-    let json = std::fs::read_to_string(path)?;
-    deserialize_state(&json)
+pub fn load_state(_path: &PathBuf) -> Result<SheetsState> {
+    Err(StateError::StateError(
+        "loading state is not implemented".to_string(),
+    ))
+}
+
+fn infer_data_type(value: &str) -> DataType {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DataType::Empty;
+    }
+    if trimmed.eq_ignore_ascii_case("true") || trimmed.eq_ignore_ascii_case("false") {
+        return DataType::Boolean;
+    }
+    if trimmed.parse::<i64>().is_ok() || trimmed.parse::<f64>().is_ok() {
+        return DataType::Number;
+    }
+    DataType::String
 }

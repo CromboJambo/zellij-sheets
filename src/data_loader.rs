@@ -1,12 +1,7 @@
-// Zellij Sheets - Data Loading Module
-// Handles loading spreadsheet data from various formats
-
-use calamine::{open_workbook, Reader, Xlsx};
-use polars::prelude::*;
+use calamine::{open_workbook_auto, Data, Reader};
 use std::path::Path;
 use thiserror::Error;
 
-/// Data loading error types
 #[derive(Debug, Error)]
 pub enum DataLoaderError {
     #[error("IO error: {0}")]
@@ -18,20 +13,12 @@ pub enum DataLoaderError {
     #[error("CSV parsing error: {0}")]
     CsvError(#[from] csv::Error),
 
-    #[error("Polars error: {0}")]
-    PolarsError(#[from] PolarsError),
-
     #[error("Invalid file format: {0}")]
     InvalidFormat(String),
-
-    #[error("File not found: {0}")]
-    FileNotFound(String),
 }
 
-/// Result type for data loading operations
 pub type Result<T> = std::result::Result<T, DataLoaderError>;
 
-/// Data source type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DataSource {
     Csv,
@@ -39,81 +26,96 @@ pub enum DataSource {
     Parquet,
 }
 
-/// Load data from a file path
-pub fn load_data(path: &Path) -> Result<DataFrame> {
-    let extension = path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .ok_or_else(|| DataLoaderError::InvalidFormat("Unknown file format".to_string()))?;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoadedData {
+    pub headers: Vec<String>,
+    pub rows: Vec<Vec<String>>,
+    pub source: DataSource,
+}
 
-    match extension.to_lowercase().as_str() {
-        "csv" => load_csv(path),
-        "xlsx" | "xls" => load_excel(path),
-        "parquet" => load_parquet(path),
-        _ => Err(DataLoaderError::InvalidFormat(format!(
-            "Unsupported file format: {}",
-            extension
-        ))),
+pub fn load_data(path: &Path) -> Result<LoadedData> {
+    let source = get_data_source(path)?;
+    match source {
+        DataSource::Csv => load_csv(path),
+        DataSource::Excel => load_excel(path),
+        DataSource::Parquet => Err(DataLoaderError::InvalidFormat(
+            "Parquet preview is not supported in the rebuilt plugin yet".to_string(),
+        )),
     }
 }
 
-/// Load data from CSV file
-pub fn load_csv(path: &Path) -> Result<DataFrame> {
-    let df = CsvReader::from_path(path)?
-        .with_separator(b',')
-        .has_header(true)
-        .infer_schema(false)
-        .finish()?;
+pub fn load_csv(path: &Path) -> Result<LoadedData> {
+    let mut reader = csv::Reader::from_path(path)?;
+    let headers = reader
+        .headers()?
+        .iter()
+        .enumerate()
+        .map(|(index, value)| normalize_header(value, index))
+        .collect::<Vec<_>>();
 
-    Ok(df)
+    let mut rows = Vec::new();
+    for record in reader.records() {
+        let record = record?;
+        let mut row = record.iter().map(ToOwned::to_owned).collect::<Vec<_>>();
+        row.resize(headers.len(), String::new());
+        rows.push(row);
+    }
+
+    Ok(LoadedData {
+        headers,
+        rows,
+        source: DataSource::Csv,
+    })
 }
 
-/// Load data from Excel file
-pub fn load_excel(path: &Path) -> Result<DataFrame> {
-    let mut workbook: Reader<Xlsx<_, _>> = open_workbook(path)?;
-
-    // Get the first sheet name
-    let sheet_name = workbook
-        .sheet_names()
+pub fn load_excel(path: &Path) -> Result<LoadedData> {
+    let mut workbook = open_workbook_auto(path)?;
+    let sheet_names = workbook.sheet_names().to_owned();
+    let sheet_name = sheet_names
         .first()
         .ok_or_else(|| DataLoaderError::InvalidFormat("Excel file has no sheets".to_string()))?;
-
-    // Try to get the first sheet
     let range = workbook.worksheet_range(sheet_name)?;
-    let df = range.to_dataframe()?;
+    let mut rows_iter = range.rows();
+    let header_row = rows_iter
+        .next()
+        .ok_or_else(|| DataLoaderError::InvalidFormat("Excel sheet is empty".to_string()))?;
 
-    Ok(df)
+    let headers = header_row
+        .iter()
+        .enumerate()
+        .map(|(index, cell)| normalize_header(&excel_cell_to_string(cell), index))
+        .collect::<Vec<_>>();
+
+    let mut rows = Vec::new();
+    for row in rows_iter {
+        let mut rendered = row.iter().map(excel_cell_to_string).collect::<Vec<_>>();
+        rendered.resize(headers.len(), String::new());
+        rows.push(rendered);
+    }
+
+    Ok(LoadedData {
+        headers,
+        rows,
+        source: DataSource::Excel,
+    })
 }
 
-/// Load data from Parquet file
-pub fn load_parquet(path: &Path) -> Result<DataFrame> {
-    let df = ParquetReader::new(path)
-        .map_err(DataLoaderError::from)?
-        .finish()
-        .map_err(DataLoaderError::from)?;
-
-    Ok(df)
-}
-
-/// Get data source type from file extension
 pub fn get_data_source(path: &Path) -> Result<DataSource> {
     let extension = path
         .extension()
         .and_then(|ext| ext.to_str())
         .ok_or_else(|| DataLoaderError::InvalidFormat("Unknown file format".to_string()))?;
 
-    match extension.to_lowercase().as_str() {
+    match extension.to_ascii_lowercase().as_str() {
         "csv" => Ok(DataSource::Csv),
         "xlsx" | "xls" => Ok(DataSource::Excel),
         "parquet" => Ok(DataSource::Parquet),
         _ => Err(DataLoaderError::InvalidFormat(format!(
-            "Unsupported file format: {}",
-            extension
+            "Unsupported file format: {extension}"
         ))),
     }
 }
 
-/// Get file name from path
 pub fn get_file_name(path: &Path) -> String {
     path.file_name()
         .and_then(|name| name.to_str())
@@ -121,7 +123,6 @@ pub fn get_file_name(path: &Path) -> String {
         .to_string()
 }
 
-/// Get file extension from path
 pub fn get_file_extension(path: &Path) -> String {
     path.extension()
         .and_then(|ext| ext.to_str())
@@ -129,21 +130,39 @@ pub fn get_file_extension(path: &Path) -> String {
         .to_string()
 }
 
-/// Check if file exists
 pub fn file_exists(path: &Path) -> bool {
     path.exists()
 }
 
-/// Get file size in bytes
 pub fn get_file_size(path: &Path) -> Result<u64> {
     std::fs::metadata(path)
         .map(|meta| meta.len())
         .map_err(DataLoaderError::IoError)
 }
 
-/// Get file modification time
 pub fn get_file_modification_time(path: &Path) -> Result<std::time::SystemTime> {
     std::fs::metadata(path)
-        .map(|meta| meta.modified())
+        .and_then(|meta| meta.modified())
         .map_err(DataLoaderError::IoError)
+}
+
+fn normalize_header(value: &str, index: usize) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        format!("column_{}", index + 1)
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn excel_cell_to_string(cell: &Data) -> String {
+    match cell {
+        Data::Empty => String::new(),
+        Data::String(value) | Data::DateTimeIso(value) | Data::DurationIso(value) => value.clone(),
+        Data::Int(value) => value.to_string(),
+        Data::Float(value) => value.to_string(),
+        Data::Bool(value) => value.to_string(),
+        Data::DateTime(value) => value.to_string(),
+        Data::Error(value) => format!("{value:?}"),
+    }
 }
