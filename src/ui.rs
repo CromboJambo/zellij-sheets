@@ -3,7 +3,7 @@
 
 use crate::config::SheetsConfig;
 use crate::state::SheetsState;
-use zellij_term::prelude::*;
+use zellij::prelude::*;
 
 /// Draw the complete UI
 pub fn draw_ui(state: &SheetsState) {

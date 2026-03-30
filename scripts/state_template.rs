@@ -156,7 +156,7 @@ impl SheetsState {
     /// Initialize state with data
     pub fn init(&self, data: DataFrame, headers: Vec<String>) -> Result<()> {
         let mut df = data.clone();
-        let mut headers = headers.clone();
+        let mut headers = headers;
 
         // Apply any filters
         if let Some(expr) = self.get_filter_expr()? {
@@ -217,6 +217,7 @@ impl SheetsState {
     /// Apply search filter to data frame
     fn apply_search_filter(&self, df: DataFrame, query: &str) -> Result<DataFrame> {
         let lower_query = query.to_lowercase();
+
         let columns = df.get_column_names();
         let mut filter_exprs = Vec::new();
 
@@ -386,29 +387,30 @@ impl SheetsState {
 
     /// Set sort column and direction
     pub fn set_sort(&self, column: Option<String>, direction: SortDirection) {
-        let mut sort_column = self.sort_column.write().unwrap();
-        let mut sort_direction = self.sort_direction.write().unwrap();
-        let column_clone = column.clone();
-        let direction_clone = direction.clone();
+            pub fn set_sort(&self, column: Option<String>, direction: SortDirection) {
+                let mut sort_column = self.sort_column.write().unwrap();
+                let mut sort_direction = self.sort_direction.write().unwrap();
+                let column_clone = column.clone();
+                let direction_clone = direction.clone();
 
-        *sort_column = column;
-        *sort_direction = direction;
+                *sort_column = column;
+                *sort_direction = direction;
 
-        if column_clone.is_some() {
-            let dir_str = match direction_clone {
-                SortDirection::Ascending => "ascending",
-                SortDirection::Descending => "descending",
-            };
-            self.add_status_message(
-                StatusMessage {
-                    message: format!("Sort: {} ({})", column_clone.as_ref().unwrap(), dir_str),
-                    timestamp: SystemTime::now(),
-                    level: StatusLevel::Info,
-                },
-                3,
-            );
-        }
-    }
+                if column_clone.is_some() {
+                    let dir_str = match direction_clone {
+                        SortDirection::Ascending => "ascending",
+                        SortDirection::Descending => "descending",
+                    };
+                    self.add_status_message(
+                        StatusMessage {
+                            message: format!("Sort: {} ({})", column_clone.as_ref().unwrap(), dir_str),
+                            timestamp: SystemTime::now(),
+                            level: StatusLevel::Info,
+                        },
+                        3,
+                    );
+                }
+            }
 
     /// Get sort column
     pub fn get_sort_column(&self) -> Result<Option<String>> {
@@ -459,19 +461,7 @@ impl SheetsState {
     }
 
     /// Set view mode
-    pub fn set_view_mode(&self, mode: ViewMode) {
-        let mut view_mode = self.view_mode.write().unwrap();
-        *view_mode = mode;
 
-        self.add_status_message(
-            StatusMessage {
-                message: format!("View mode: {:?}", mode),
-                timestamp: SystemTime::now(),
-                level: StatusLevel::Info,
-            },
-            3,
-        );
-    }
 
     /// Get view mode
     pub fn get_view_mode(&self) -> Result<ViewMode> {
@@ -542,144 +532,12 @@ impl SheetsState {
 
     /// Get width
     pub fn get_width(&self) -> Result<usize> {
-        Ok(80)
+        Ok(80) // Default width
     }
 
     /// Get height
     pub fn get_height(&self) -> Result<usize> {
-        Ok(24)
-    }
-
-    /// Get file name
-    pub fn get_file_name(&self) -> Result<String> {
-        let file_path = self.file_path.read().unwrap();
-        match file_path.as_ref() {
-            Some(path) => {
-                let name = path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("unknown")
-                    .to_string();
-                Ok(name)
-            }
-            None => Ok("No file loaded".to_string()),
-        }
-    }
-
-    /// Get config
-    pub fn get_config(&self) -> Result<SheetsConfig> {
-        Ok(self.config.clone())
-    }
-
-    /// Set config
-    pub fn set_config(&self, config: SheetsConfig) {
-        self.config = Arc::new(config);
-    }
-
-    /// Resize
-    pub fn resize(&self, width: usize, height: usize) {
-        // Can be used to adjust UI layout
-    }
-
-    /// Get last error
-    pub fn get_last_error(&self) -> Result<Option<String>> {
-        Ok(self.last_error.read().unwrap().clone())
-    }
-
-    /// Set last error
-    pub fn set_last_error(&self, error: Option<String>) {
-        self.last_error.write().unwrap().replace(error);
-    }
-
-    /// Clear last error
-    pub fn clear_last_error(&self) {
-        self.last_error.write().unwrap().replace(None);
-    }
-
-    /// Set show row numbers
-    pub fn set_show_row_numbers(&self, show: bool) {
-        self.show_row_numbers.write().unwrap().replace(show);
-    }
-
-    /// Get show row numbers
-    pub fn get_show_row_numbers(&self) -> Result<bool> {
-        Ok(self.show_row_numbers.read().unwrap().clone())
-    }
-
-    /// Set show column numbers
-    pub fn set_show_column_numbers(&self, show: bool) {
-        self.show_column_numbers.write().unwrap().replace(show);
-    }
-
-    /// Get show column numbers
-    pub fn get_show_column_numbers(&self) -> Result<bool> {
-        Ok(self.show_column_numbers.read().unwrap().clone())
-    }
-
-    /// Set show grid lines
-    pub fn set_show_grid_lines(&self, show: bool) {
-        self.show_grid_lines.write().unwrap().replace(show);
-    }
-
-    /// Get show grid lines
-    pub fn get_show_grid_lines(&self) -> Result<bool> {
-        Ok(self.show_grid_lines.read().unwrap().clone())
-    }
-
-    /// Set show data types
-    pub fn set_show_data_types(&self, show: bool) {
-        self.show_data_types.write().unwrap().replace(show);
-    }
-
-    /// Get show data types
-    pub fn get_show_data_types(&self) -> Result<bool> {
-        Ok(self.show_data_types.read().unwrap().clone())
-    }
-
-    /// Check if file is modified
-    pub fn is_file_modified(&self) -> Result<bool> {
-        let file_path = self.file_path.read().unwrap();
-        if let Some(path) = file_path.as_ref() {
-            if let Ok(metadata) = std::fs::metadata(path) {
-                if let Ok(mod_time) = metadata.modified() {
-                    if let Some(last_mod_time) = self.file_mod_time.read().unwrap().clone() {
-                        return Ok(mod_time > last_mod_time);
-                    }
-                }
-            }
-        }
-        Ok(false)
-    }
-
-    /// Get data type for column
-    pub fn get_data_type(&self, column: usize) -> Result<Option<String>> {
-        let df = self.data_frame.read().unwrap();
-        let column_names = self.column_names.read().unwrap();
-
-        if column >= column_names.len() {
-            return Ok(None);
-        }
-
-        let col_name = &column_names[column];
-
-        if let Ok(col) = df.column(col_name) {
-            match col.dtype() {
-                DataType::String => Ok(Some("String".to_string())),
-                DataType::Int32 => Ok(Some("Int32".to_string())),
-                DataType::Int64 => Ok(Some("Int64".to_string())),
-                DataType::Float32 => Ok(Some("Float32".to_string())),
-                DataType::Float64 => Ok(Some("Float64".to_string())),
-                DataType::Boolean => Ok(Some("Boolean".to_string())),
-                DataType::Date => Ok(Some("Date".to_string())),
-                DataType::Time => Ok(Some("Time".to_string())),
-                DataType::Datetime => Ok(Some("Datetime".to_string())),
-                DataType::Duration => Ok(Some("Duration".to_string())),
-                DataType::Null => Ok(Some("Null".to_string())),
-                _ => Ok(None),
-            }
-        } else {
-            Ok(None)
-        }
+        Ok(24) // Default height
     }
 }
 

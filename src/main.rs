@@ -1,5 +1,5 @@
-// Zellij Sheets - A terminal-based spreadsheet viewer
-// Powered by Zellij's TUI capabilities
+// Zellij Sheets - Main Entry Point
+// Terminal-based spreadsheet viewer powered by Zellij's TUI capabilities
 
 use calamine::{open_workbook, Reader, Xlsx};
 use polars::prelude::*;
