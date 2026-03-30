@@ -57,7 +57,7 @@ pub enum DataType {
     String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SheetsState {
     headers: Vec<String>,
     rows: Vec<Vec<String>>,
@@ -468,28 +468,26 @@ impl SheetsState {
 }
 
 pub fn serialize_state(_state: &SheetsState) -> Result<String> {
-    Err(StateError::StateError(
-        "state serialization is not implemented".to_string(),
-    ))
-}
+   pub fn serialize_state(state: &SheetsState) -> Result<String> {
+       serde_json::to_string_pretty(state)
+           .map_err(|e| StateError::StateError(format!("Serialization error: {}", e)))
+   }
 
-pub fn deserialize_state(_json: &str) -> Result<SheetsState> {
-    Err(StateError::StateError(
-        "state deserialization is not implemented".to_string(),
-    ))
-}
+   pub fn deserialize_state(json: &str) -> Result<SheetsState> {
+       serde_json::from_str(json)
+           .map_err(|e| StateError::StateError(format!("Deserialization error: {}", e)))
+   }
 
-pub fn save_state(_state: &SheetsState, _path: &PathBuf) -> Result<()> {
-    Err(StateError::StateError(
-        "saving state is not implemented".to_string(),
-    ))
-}
+   pub fn save_state(state: &SheetsState, path: &PathBuf) -> Result<()> {
+       let json = serialize_state(state)?;
+       std::fs::write(path, json)?;
+       Ok(())
+   }
 
-pub fn load_state(_path: &PathBuf) -> Result<SheetsState> {
-    Err(StateError::StateError(
-        "loading state is not implemented".to_string(),
-    ))
-}
+   pub fn load_state(path: &PathBuf) -> Result<SheetsState> {
+       let json = std::fs::read_to_string(path)?;
+       deserialize_state(&json)
+   }
 
 fn infer_data_type(value: &str) -> DataType {
     let trimmed = value.trim();

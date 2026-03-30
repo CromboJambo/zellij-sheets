@@ -1,0 +1,7 @@
+[package]
+name = "zellij-sheets-tests"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+zellij-sheets = { path = ".." }
