@@ -1,4 +1,4 @@
-careuse std::collections::BTreeMap;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use zellij_sheets::{ui, SheetsConfig, SheetsState};

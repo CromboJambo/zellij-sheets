@@ -45,8 +45,11 @@ pub enum StatusLevel {
 #[derive(Debug, Clone)]
 pub struct StatusMessage {
     pub message: String,
+    /// Epoch seconds at creation time, used for expiry checks.
     pub timestamp: SystemTime,
     pub level: StatusLevel,
+    /// How long this message should be displayed, in seconds.
+    pub duration_secs: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,7 +60,33 @@ pub enum DataType {
     String,
 }
 
+/// Serializable snapshot of `SheetsState`, excluding runtime-only fields
+/// (`Arc<SheetsConfig>`, `StatusMessage`s, and `SystemTime`s) that cannot
+/// round-trip through serde without custom impls.
 #[derive(Clone, Serialize, Deserialize)]
+struct SheetsStateSnapshot {
+    headers: Vec<String>,
+    rows: Vec<Vec<String>>,
+    scroll_row: usize,
+    selected_row: usize,
+    max_scroll_row: usize,
+    file_name: String,
+    width: usize,
+    height: usize,
+    view_mode: ViewMode,
+    sort_column: Option<String>,
+    sort_direction: SortDirection,
+    filter_expr: Option<String>,
+    search_query: Option<String>,
+    file_path: Option<PathBuf>,
+    last_error: Option<String>,
+    show_row_numbers: bool,
+    show_column_numbers: bool,
+    show_grid_lines: bool,
+    show_data_types: bool,
+}
+
+#[derive(Clone)]
 pub struct SheetsState {
     headers: Vec<String>,
     rows: Vec<Vec<String>>,
@@ -136,14 +165,12 @@ impl SheetsState {
         self.file_mod_time = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
         self.file_path = Some(path.clone());
         self.init(data)?;
-        self.add_status_message(
-            StatusMessage {
-                message: format!("Loaded {}", path.display()),
-                timestamp: SystemTime::now(),
-                level: StatusLevel::Success,
-            },
-            5,
-        );
+        self.add_status_message(StatusMessage {
+            message: format!("Loaded {}", path.display()),
+            timestamp: SystemTime::now(),
+            level: StatusLevel::Success,
+            duration_secs: 5,
+        });
         Ok(())
     }
 
@@ -212,14 +239,12 @@ impl SheetsState {
     }
 
     pub fn quit(&mut self) {
-        self.add_status_message(
-            StatusMessage {
-                message: "Exiting".to_string(),
-                timestamp: SystemTime::now(),
-                level: StatusLevel::Info,
-            },
-            1,
-        );
+        self.add_status_message(StatusMessage {
+            message: "Exiting".to_string(),
+            timestamp: SystemTime::now(),
+            level: StatusLevel::Info,
+            duration_secs: 1,
+        });
     }
 
     pub fn scroll_row(&self) -> usize {
@@ -289,13 +314,13 @@ impl SheetsState {
         self.scroll_row >= self.max_scroll_row
     }
 
-    pub fn add_status_message(&mut self, message: StatusMessage, duration_secs: u64) {
+    pub fn add_status_message(&mut self, message: StatusMessage) {
         self.status_messages.push(message);
-        self.status_messages.retain(|message| {
-            message
-                .timestamp
+        // Expire messages using each message's own duration, not a shared one.
+        self.status_messages.retain(|msg| {
+            msg.timestamp
                 .elapsed()
-                .map(|elapsed| elapsed.as_secs() < duration_secs)
+                .map(|elapsed| elapsed.as_secs() < msg.duration_secs)
                 .unwrap_or(true)
         });
     }
@@ -467,27 +492,68 @@ impl SheetsState {
     }
 }
 
-pub fn serialize_state(_state: &SheetsState) -> Result<String> {
-   pub fn serialize_state(state: &SheetsState) -> Result<String> {
-       serde_json::to_string_pretty(state)
-           .map_err(|e| StateError::StateError(format!("Serialization error: {}", e)))
-   }
+pub fn serialize_state(state: &SheetsState) -> Result<String> {
+    let snapshot = SheetsStateSnapshot {
+        headers: state.headers.clone(),
+        rows: state.rows.clone(),
+        scroll_row: state.scroll_row,
+        selected_row: state.selected_row,
+        max_scroll_row: state.max_scroll_row,
+        file_name: state.file_name.clone(),
+        width: state.width,
+        height: state.height,
+        view_mode: state.view_mode.clone(),
+        sort_column: state.sort_column.clone(),
+        sort_direction: state.sort_direction.clone(),
+        filter_expr: state.filter_expr.clone(),
+        search_query: state.search_query.clone(),
+        file_path: state.file_path.clone(),
+        last_error: state.last_error.clone(),
+        show_row_numbers: state.show_row_numbers,
+        show_column_numbers: state.show_column_numbers,
+        show_grid_lines: state.show_grid_lines,
+        show_data_types: state.show_data_types,
+    };
+    serde_json::to_string_pretty(&snapshot)
+        .map_err(|e| StateError::StateError(format!("Serialization error: {}", e)))
+}
 
-   pub fn deserialize_state(json: &str) -> Result<SheetsState> {
-       serde_json::from_str(json)
-           .map_err(|e| StateError::StateError(format!("Deserialization error: {}", e)))
-   }
+pub fn deserialize_state(json: &str) -> Result<SheetsState> {
+    let snapshot: SheetsStateSnapshot = serde_json::from_str(json)
+        .map_err(|e| StateError::StateError(format!("Deserialization error: {}", e)))?;
+    let mut state = SheetsState::new(Arc::new(SheetsConfig::default()));
+    state.headers = snapshot.headers;
+    state.rows = snapshot.rows;
+    state.scroll_row = snapshot.scroll_row;
+    state.selected_row = snapshot.selected_row;
+    state.max_scroll_row = snapshot.max_scroll_row;
+    state.file_name = snapshot.file_name;
+    state.width = snapshot.width;
+    state.height = snapshot.height;
+    state.view_mode = snapshot.view_mode;
+    state.sort_column = snapshot.sort_column;
+    state.sort_direction = snapshot.sort_direction;
+    state.filter_expr = snapshot.filter_expr;
+    state.search_query = snapshot.search_query;
+    state.file_path = snapshot.file_path;
+    state.last_error = snapshot.last_error;
+    state.show_row_numbers = snapshot.show_row_numbers;
+    state.show_column_numbers = snapshot.show_column_numbers;
+    state.show_grid_lines = snapshot.show_grid_lines;
+    state.show_data_types = snapshot.show_data_types;
+    Ok(state)
+}
 
-   pub fn save_state(state: &SheetsState, path: &PathBuf) -> Result<()> {
-       let json = serialize_state(state)?;
-       std::fs::write(path, json)?;
-       Ok(())
-   }
+pub fn save_state(state: &SheetsState, path: &PathBuf) -> Result<()> {
+    let json = serialize_state(state)?;
+    std::fs::write(path, json)?;
+    Ok(())
+}
 
-   pub fn load_state(path: &PathBuf) -> Result<SheetsState> {
-       let json = std::fs::read_to_string(path)?;
-       deserialize_state(&json)
-   }
+pub fn load_state(path: &PathBuf) -> Result<SheetsState> {
+    let json = std::fs::read_to_string(path)?;
+    deserialize_state(&json)
+}
 
 fn infer_data_type(value: &str) -> DataType {
     let trimmed = value.trim();

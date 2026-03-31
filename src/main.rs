@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 #[cfg(not(target_family = "wasm"))]
-use zellij_sheets::{ui, SheetsConfig, SheetsState};
+use zellij_sheets::{ui::UiRenderer, SheetsConfig, SheetsState};
 
 #[cfg(not(target_family = "wasm"))]
 struct SheetsArgs {
@@ -30,7 +30,13 @@ fn main() -> anyhow::Result<()> {
         .unwrap_or(24);
     state.resize(width, height);
 
-    println!("{}", ui::draw_ui(&state));
+    let renderer = UiRenderer::new();
+    println!(
+        "{}",
+        renderer
+            .draw_ui(&state)
+            .unwrap_or_else(|e| format!("Error: {}", e))
+    );
     Ok(())
 }
 

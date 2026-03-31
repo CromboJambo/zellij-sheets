@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use zellij_sheets::config::SheetsConfig;
-use zellij_sheets::state::{SheetsState, ViewMode};
-use zellij_sheets::ui::{UiRenderer, ThemeConfig};
+use zellij_sheets::state::SheetsState;
+use zellij_sheets::ui::{ThemeConfig, UiRenderer};
 
 #[cfg(test)]
 mod tests {
@@ -12,10 +12,8 @@ mod tests {
         let renderer = UiRenderer::new();
         let config = Arc::new(SheetsConfig::default());
         let state = SheetsState::new(config);
-        
-        assert!(renderer
-            .draw_ui(&state)
-            .is_ok());
+
+        assert!(renderer.draw_ui(&state).is_ok());
     }
 
     #[test]
@@ -24,10 +22,8 @@ mod tests {
         let renderer = UiRenderer::with_theme(theme);
         let config = Arc::new(SheetsConfig::default());
         let state = SheetsState::new(config);
-        
-        assert!(renderer
-            .draw_ui(&state)
-            .is_ok());
+
+        assert!(renderer.draw_ui(&state).is_ok());
     }
 
     #[test]
@@ -55,7 +51,7 @@ mod tests {
             data_type_empty: "90".to_string(),
             data_type_date: "33".to_string(),
         };
-        
+
         assert_eq!(theme.header_fg, "255");
         assert_eq!(theme.selected_fg, "0");
     }
@@ -83,7 +79,10 @@ mod tests {
 
     #[test]
     fn test_colors_apply() {
-        let colors = zellij_sheets::ui::Colors::with_fg("31").with_bg("44");
+        let colors = zellij_sheets::ui::Colors {
+            foreground: Some("31".to_string()),
+            background: Some("44".to_string()),
+        };
         let result = colors.apply();
         assert!(result.contains("\x1b[31"));
         assert!(result.contains("\x1b[44"));
@@ -100,13 +99,11 @@ mod tests {
     fn test_ui_renderer_set_use_colors() {
         let mut renderer = UiRenderer::new();
         renderer.set_use_colors(false);
-        
+
         let config = Arc::new(SheetsConfig::default());
         let state = SheetsState::new(config);
-        
-        assert!(renderer
-            .draw_ui(&state)
-            .is_ok());
+
+        assert!(renderer.draw_ui(&state).is_ok());
     }
 
     #[test]
@@ -114,13 +111,11 @@ mod tests {
         let mut renderer = UiRenderer::new();
         let theme = ThemeConfig::default();
         renderer.set_theme(theme);
-        
+
         let config = Arc::new(SheetsConfig::default());
         let state = SheetsState::new(config);
-        
-        assert!(renderer
-            .draw_ui(&state)
-            .is_ok());
+
+        assert!(renderer.draw_ui(&state).is_ok());
     }
 
     #[test]

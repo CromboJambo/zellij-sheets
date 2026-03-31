@@ -1,8 +1,10 @@
 // Zellij Sheets - UI Rendering Module
 // Enhanced with better error handling, color support, and improved rendering
 
-use crate::state::{DataType, SheetsState, StatusLevel, StatusMessage, ViewMode};
-use std::fmt;
+use crate::state::{DataType, SheetsState, StatusLevel};
+use serde::{Deserialize, Serialize};
+
+use thiserror::Error;
 
 /// Color codes for terminal output
 pub struct Colors {
@@ -151,42 +153,40 @@ impl UiRenderer {
     /// Draw the header section
     fn draw_header(&self, state: &SheetsState) -> Result<String> {
         let theme = self.get_theme();
-        let header_fg = self.get_color(theme.header_fg);
-        let header_bg = self.get_color(theme.header_bg);
-        let separator_fg = self.get_color(theme.separator_fg);
+        let header_style = format!(
+            "\x1b[38;5;{}m\x1b[48;5;{}m",
+            theme.header_fg, theme.header_bg
+        );
+        let sep_style = format!("\x1b[38;5;{}m", theme.separator_fg);
+        let reset = "\x1b[0m";
 
-        let mut header = format!(
-            "{}{} {} {}{}{}",
-            header_bg,
-            header_fg,
-            "Zellij Sheets",
-            separator_fg,
-            state.file_name()
+        let mode_label = state
+            .get_view_mode()
+            .map(|m| format!("{:?}", m))
+            .unwrap_or_default();
+
+        let header = format!(
+            "{}Zellij Sheets{} | {} | {} rows | {}{}",
+            header_style,
+            reset,
+            state.file_name(),
+            state.row_count(),
+            mode_label,
+            sep_style,
         );
 
-        // Add view mode indicator
-        if let Ok(mode) = state.get_view_mode() {
-            header.push_str(&format!(" | {} {}", separator_fg, mode));
-        }
-
-        // Add row count
-        header.push_str(&format!(" | {} {}", separator_fg, state.row_count()));
-
-        Ok(header)
+        Ok(format!("{}{}", header, reset))
     }
 
     /// Draw the separator line
     fn draw_separator(&self, state: &SheetsState) -> Result<String> {
-        let theme = self.get_theme();
-        let separator_fg = self.get_color(theme.separator_fg);
-        let width = state.width().unwrap_or(80);
-        Ok(separator_fg.repeat(width))
+        let width = state.get_width().unwrap_or(80);
+        Ok(format!("\x1b[38;5;240m{}\x1b[0m", "─".repeat(width)))
     }
 
     /// Draw the data rows
     fn draw_data_rows(&self, lines: &mut Vec<String>, state: &SheetsState) -> Result<()> {
-        let (start, end) = state.row_range()?;
-        let theme = self.get_theme();
+        let (start, end) = state.row_range();
 
         // Draw headers
         if let Some(headers) = state.headers() {
@@ -210,26 +210,24 @@ impl UiRenderer {
     /// Draw the footer section
     fn draw_footer(&self, state: &SheetsState) -> Result<String> {
         let theme = self.get_theme();
-        let separator_fg = self.get_color(theme.separator_fg);
+        let sep_style = format!("\x1b[38;5;{}m", theme.separator_fg);
+        let reset = "\x1b[0m";
 
         let mut footer = format!(
-            "{} Keys: Up/Down, PgUp/PgDn, Home/End, q/Ctrl-C",
-            separator_fg
+            "{}Keys: Up/Down, PgUp/PgDn, Home/End, q/Ctrl-C{}",
+            sep_style, reset
         );
 
         // Add status messages if any
         if let Ok(messages) = state.get_status_messages() {
-            if !messages.is_empty() {
-                footer.push_str(&format!(" | {}", separator_fg));
-                for msg in messages.iter().rev().take(1) {
-                    let level_color = match msg.level {
-                        StatusLevel::Info => "34".to_string(),    // Blue
-                        StatusLevel::Success => "32".to_string(), // Green
-                        StatusLevel::Warning => "33".to_string(), // Yellow
-                        StatusLevel::Error => "31".to_string(),   // Red
-                    };
-                    footer.push_str(&format!("{}{}", self.get_color(level_color), msg.message));
-                }
+            if let Some(msg) = messages.iter().rev().next() {
+                let level_color = match msg.level {
+                    StatusLevel::Info => "34",    // Blue
+                    StatusLevel::Success => "32", // Green
+                    StatusLevel::Warning => "33", // Yellow
+                    StatusLevel::Error => "31",   // Red
+                };
+                footer.push_str(&format!(" | \x1b[{}m{}\x1b[0m", level_color, msg.message));
             }
         }
 
@@ -243,16 +241,20 @@ impl UiRenderer {
         state: &SheetsState,
         is_header: bool,
     ) -> Result<String> {
-        let theme = self.get_theme();
-        let max_width = state
-            .get_config()
-            .map(|config| config.display.max_cell_length)
-            .unwrap_or(24);
-
         let mut rendered = Vec::new();
 
-        for (i, value) in values.iter().enumerate() {
-            let cell_value = self.format_cell(value, state, i, is_header)?;
+        for (col, value) in values.iter().enumerate() {
+            let cell_value = if is_header {
+                // Column headers always use the header foreground color
+                format!(
+                    "\x1b[1;38;5;{}m{}\x1b[0m",
+                    self.get_theme().header_fg,
+                    value
+                )
+            } else {
+                let data_type = state.get_data_type(col).unwrap_or(DataType::String);
+                self.format_cell(value, data_type)?
+            };
             rendered.push(cell_value);
         }
 
@@ -260,44 +262,28 @@ impl UiRenderer {
     }
 
     /// Format a single cell value
-    fn format_cell(
-        &self,
-        value: &str,
-        state: &SheetsState,
-        col: usize,
-        is_header: bool,
-    ) -> Result<String> {
-        let theme = self.get_theme();
-        let max_width = state
-            .get_config()
-            .map(|config| config.display.max_cell_length)
-            .unwrap_or(24);
+    fn format_cell(&self, value: &str, data_type: DataType) -> Result<String> {
+        const MAX_WIDTH: usize = 24;
 
         // Truncate long values
-        let mut formatted = if value.chars().count() > max_width {
-            let truncated = value
+        let truncated = if value.chars().count() > MAX_WIDTH {
+            let s = value
                 .chars()
-                .take(max_width.saturating_sub(1))
+                .take(MAX_WIDTH.saturating_sub(1))
                 .collect::<String>();
-            format!("{}~", truncated)
+            format!("{}~", s)
         } else {
             value.to_string()
         };
 
-        // Add data type color if enabled
-        if state.get_show_data_types().unwrap_or(false) {
-            if let Some(data_type) = state.get_data_type(col) {
-                let color = match data_type {
-                    DataType::Number => self.get_color(theme.data_type_number),
-                    DataType::String => self.get_color(theme.data_type_string),
-                    DataType::Boolean => self.get_color(theme.data_type_boolean),
-                    DataType::Empty => self.get_color(theme.data_type_empty),
-                };
-                formatted = format!("{}{}", color, formatted);
-            }
-        }
-
-        Ok(formatted)
+        // Color by actual inferred data type
+        let color_code = match data_type {
+            DataType::Number => "32",
+            DataType::Boolean => "35",
+            DataType::Empty => "90",
+            DataType::String => "33",
+        };
+        Ok(format!("\x1b[{}m{}\x1b[0m", color_code, truncated))
     }
 
     /// Get theme configuration
@@ -306,9 +292,14 @@ impl UiRenderer {
     }
 
     /// Get color code for terminal
-    fn get_color(&self, color_code: String) -> String {
+    pub fn get_color(&self, color_code: &str) -> String {
+        let color = if color_code.is_empty() {
+            "0"
+        } else {
+            color_code
+        };
         if self.use_colors {
-            format!("\x1b[{}m", color_code)
+            format!("\x1b[{}m", color)
         } else {
             String::new()
         }
