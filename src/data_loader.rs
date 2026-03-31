@@ -1,7 +1,13 @@
+//! Data loading module for spreadsheet files
+//!
+//! Provides functionality to load and parse spreadsheet data from various formats
+//! including CSV and Excel files.
+
 use calamine::{open_workbook_auto, Data, Reader};
 use std::path::Path;
 use thiserror::Error;
 
+/// Errors that can occur during data loading
 #[derive(Debug, Error)]
 pub enum DataLoaderError {
     #[error("IO error: {0}")]
@@ -17,22 +23,40 @@ pub enum DataLoaderError {
     InvalidFormat(String),
 }
 
+/// Result type for data loading operations
 pub type Result<T> = std::result::Result<T, DataLoaderError>;
 
+/// Data source type for spreadsheet files
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DataSource {
+    /// CSV file format
     Csv,
+    /// Excel file format (.xlsx, .xls)
     Excel,
+    /// Parquet file format (not yet supported)
     Parquet,
 }
 
+/// Loaded spreadsheet data
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoadedData {
+    /// Column headers
     pub headers: Vec<String>,
+    /// Data rows
     pub rows: Vec<Vec<String>>,
+    /// Source file format
     pub source: DataSource,
 }
 
+/// Load spreadsheet data from a file path
+///
+/// # Arguments
+///
+/// * `path` - Path to the spreadsheet file
+///
+/// # Returns
+///
+/// Returns `LoadedData` on success or `DataLoaderError` on failure
 pub fn load_data(path: &Path) -> Result<LoadedData> {
     let source = get_data_source(path)?;
     match source {
@@ -44,6 +68,15 @@ pub fn load_data(path: &Path) -> Result<LoadedData> {
     }
 }
 
+/// Load data from a CSV file
+///
+/// # Arguments
+///
+/// * `path` - Path to the CSV file
+///
+/// # Returns
+///
+/// Returns `LoadedData` on success or `DataLoaderError` on failure
 pub fn load_csv(path: &Path) -> Result<LoadedData> {
     let mut reader = csv::Reader::from_path(path)?;
     let headers = reader

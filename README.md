@@ -1,5 +1,11 @@
-# Zellij Sheets
-
+```                                                   
+           _|                              _|      
+   _|_|_|  _|_|_|      _|_|      _|_|    _|_|_|_|  
+ _|_|      _|    _|  _|_|_|_|  _|_|_|_|    _|      
+     _|_|  _|    _|  _|        _|          _|      
+ _|_|_|    _|    _|    _|_|_|    _|_|_|      _|_|  
+```                                                   
+                                                   
 A spreadsheet preview plugin for Zellij with a small native CLI for local smoke testing.
 
 ## Status

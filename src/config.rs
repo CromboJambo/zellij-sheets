@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Plugin configuration structure
+/// Main configuration structure for the spreadsheet viewer
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SheetsConfig {
     /// Theme configuration
@@ -64,12 +64,9 @@ pub struct AccentColors {
 
     /// Date color
     pub date: String,
-
-    /// Null color
-    pub null: String,
 }
 
-/// Display configuration
+/// Display configuration for the spreadsheet viewer
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DisplayConfig {
     /// Number of preview rows
@@ -91,7 +88,7 @@ pub struct DisplayConfig {
     pub show_data_types: bool,
 }
 
-/// Behavior configuration
+/// Behavior configuration for the spreadsheet viewer
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BehaviorConfig {
     /// Auto-refresh when file changes
@@ -117,7 +114,7 @@ pub struct ScrollSpeed {
     pub fast: f32,
 }
 
-/// Column configuration
+/// Column configuration for the spreadsheet viewer
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ColumnConfig {
     /// Auto-width columns based on content
@@ -131,6 +128,20 @@ pub struct ColumnConfig {
 
     /// Maximum column width
     pub max_column_width: usize,
+
+    /// Column width mode
+    pub width_mode: ColumnWidthMode,
+}
+
+/// Column width mode for the spreadsheet viewer
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ColumnWidthMode {
+    /// Auto-width based on content
+    Auto,
+    /// Fixed width for all columns
+    Fixed,
+    /// Mixed mode with some auto and some fixed
+    Mixed,
 }
 
 /// Default configuration
@@ -151,7 +162,6 @@ impl Default for SheetsConfig {
                     string: "#FFFF00".to_string(),
                     boolean: "#FF00FF".to_string(),
                     date: "#FF8800".to_string(),
-                    null: "#888888".to_string(),
                 },
             },
             display: DisplayConfig {
@@ -176,6 +186,7 @@ impl Default for SheetsConfig {
                 fixed_widths: vec![],
                 min_column_width: 8,
                 max_column_width: 40,
+                width_mode: ColumnWidthMode::Auto,
             },
         }
     }
@@ -236,7 +247,6 @@ pub fn validate_config(config: &SheetsConfig) -> Result<(), ConfigError> {
     validate_color(&config.theme.accent_colors.string)?;
     validate_color(&config.theme.accent_colors.boolean)?;
     validate_color(&config.theme.accent_colors.date)?;
-    validate_color(&config.theme.accent_colors.null)?;
 
     // Validate display settings
     if config.display.preview_rows == 0 {
