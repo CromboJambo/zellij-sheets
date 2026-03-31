@@ -7,18 +7,10 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Color codes for terminal output
+#[derive(Default)]
 pub struct Colors {
     pub foreground: Option<String>,
     pub background: Option<String>,
-}
-
-impl Default for Colors {
-    fn default() -> Self {
-        Self {
-            foreground: None,
-            background: None,
-        }
-    }
 }
 
 impl Colors {
@@ -37,7 +29,7 @@ impl Colors {
     }
 
     pub fn reset(&self) -> String {
-        format!("\x1b[0m")
+        "\x1b[0m".to_string()
     }
 
     pub fn apply(&self) -> String {
@@ -71,6 +63,12 @@ pub type Result<T> = std::result::Result<T, UiError>;
 pub struct UiRenderer {
     use_colors: bool,
     theme: Option<ThemeConfig>,
+}
+
+impl Default for UiRenderer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -190,7 +188,7 @@ impl UiRenderer {
 
         // Draw headers
         if let Some(headers) = state.headers() {
-            let header_line = self.render_row(&headers, state, true)?;
+            let header_line = self.render_row(headers, state, true)?;
             lines.push(header_line);
         }
 
@@ -220,7 +218,7 @@ impl UiRenderer {
 
         // Add status messages if any
         if let Ok(messages) = state.get_status_messages() {
-            if let Some(msg) = messages.iter().rev().next() {
+            if let Some(msg) = messages.iter().next_back() {
                 let level_color = match msg.level {
                     StatusLevel::Info => "34",    // Blue
                     StatusLevel::Success => "32", // Green

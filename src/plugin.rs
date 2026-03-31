@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use zellij_sheets::{ui, SheetsConfig, SheetsState};
+use zellij_sheets::{ui, ui::UiRenderer, SheetsConfig, SheetsState};
 use zellij_tile::prelude::*;
 
 #[derive(Default)]
@@ -129,7 +129,10 @@ impl ZellijPlugin for PluginState {
             return;
         }
 
-        let rendered = ui::draw_ui(&self.sheets);
+        let renderer = UiRenderer::new();
+        let rendered = renderer
+            .draw_ui(&self.sheets)
+            .unwrap_or_else(|e| format!("Error: {}", e));
         for line in rendered.lines() {
             println!("{line}");
         }

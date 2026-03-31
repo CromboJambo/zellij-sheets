@@ -1,3 +1,5 @@
+[![Crates.io](https://img.shields.io/crates/v/zellij-sheets.svg)](https://crates.io/crates/zellij-sheets) [![Docs.rs](https://docs.rs/zellij-sheets/badge.svg)](https://docs.rs/zellij-sheets) [![License: AGPL-3.0-or-later](https://img.shields.io/crates/l/zellij-sheets.svg)](https://github.com/CromboJambo/zellij-sheets/blob/main/LICENSE) [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org/)
+
 ```                                                   
            _|                              _|      
    _|_|_|  _|_|_|      _|_|      _|_|    _|_|_|_|  
@@ -13,6 +15,11 @@ A spreadsheet preview plugin for Zellij with a small native CLI for local smoke 
 - Plugin target: `wasm32-wasip1`
 - Working formats: CSV, Excel (`.xlsx`, `.xls`)
 - Pending: Parquet preview
+
+## Docs
+
+- API docs: <https://docs.rs/zellij-sheets>
+- Repository: <https://github.com/CromboJambo/zellij-sheets>
 
 ## Build
 

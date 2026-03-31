@@ -2,7 +2,7 @@
 // Handles application state, data management, and navigation
 
 use crate::config::SheetsConfig;
-use crate::data_loader::load_data;
+use crate::data_loader::{load_data, LoadedData};
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -14,27 +14,26 @@ use thiserror::Error;
 /// Error types for state management
 #[derive(Debug, Error)]
 pub enum StateError {
-    #[error("IO error: {0}")]
-    IoError(#[from] std::io::Error),
+   #[error("IO error: {0}")]
+   IoError(#[from] std::io::Error),
 
-    #[error("Data loading error: {0}")]
-    DataLoadError(#[from] crate::data_loader::DataLoaderError),
+   #[error("Data loading error: {0}")]
+   DataLoadError(#[from] crate::data_loader::DataLoaderError),
 
-    #[error("Polars error: {0}")]
-    PolarsError(#[from] PolarsError),
+   #[error("Polars error: {0}")]
+   PolarsError(#[from] PolarsError),
 
-    #[error("State error: {0}")]
-    StateError(String),
+   #[error("State error: {0}")]
+   StateError(String),
 }
 
 /// Result type for state operations
 pub type Result<T> = std::result::Result<T, StateError>;
 
-/// Application state structure
-#[derive(Clone)]
+/// Main application state structure
 pub struct SheetsState {
-    /// Configuration
-    config: Arc<SheetsConfig>,
+   /// Configuration
+   config: Arc<SheetsConfig>,
 
     /// Data frame with spreadsheet data
     data_frame: Arc<RwLock<DataFrame>>,
@@ -409,8 +408,7 @@ impl SheetsState {
                         },
                         3,
                     );
-                }
-            }
+               }
 
     /// Get sort column
     pub fn get_sort_column(&self) -> Result<Option<String>> {

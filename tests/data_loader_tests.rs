@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use zellij_sheets::data_loader::{
-    get_file_extension, get_file_name, get_data_source, load_data, DataSource,
+    get_data_source, get_file_extension, get_file_name, load_data, DataSource,
 };
 
 #[cfg(test)]
@@ -78,8 +78,4 @@ mod tests {
         let result = load_data(&path);
         assert!(result.is_err());
     }
-}
-
-fn main() {
-    println!("Run tests with cargo test instead");
 }

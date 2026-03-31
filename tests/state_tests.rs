@@ -217,13 +217,13 @@ mod tests {
         let mut state = SheetsState::new(config);
 
         state.set_show_row_numbers(true);
-        assert_eq!(state.get_show_row_numbers().unwrap(), true);
+        assert!(state.get_show_row_numbers().unwrap());
 
         state.set_show_column_numbers(false);
-        assert_eq!(state.get_show_column_numbers().unwrap(), false);
+        assert!(!state.get_show_column_numbers().unwrap());
 
         state.set_show_grid_lines(false);
-        assert_eq!(state.get_show_grid_lines().unwrap(), false);
+        assert!(!state.get_show_grid_lines().unwrap());
     }
 
     #[test]
@@ -354,10 +354,10 @@ mod tests {
         assert_eq!(state.row_count(), 0);
         assert_eq!(state.col_count(), 0);
         assert_eq!(state.get_view_mode().unwrap(), ViewMode::Grid);
-        assert_eq!(state.get_show_row_numbers().unwrap(), false);
-        assert_eq!(state.get_show_column_numbers().unwrap(), true);
-        assert_eq!(state.get_show_grid_lines().unwrap(), true);
-        assert_eq!(state.get_show_data_types().unwrap(), false);
+        assert!(!state.get_show_row_numbers().unwrap());
+        assert!(state.get_show_column_numbers().unwrap());
+        assert!(state.get_show_grid_lines().unwrap());
+        assert!(!state.get_show_data_types().unwrap());
     }
 
     fn infer_data_type(value: &str) -> DataType {
@@ -373,8 +373,4 @@ mod tests {
         }
         DataType::String
     }
-}
-
-fn main() {
-    println!("Run tests with cargo test instead");
 }

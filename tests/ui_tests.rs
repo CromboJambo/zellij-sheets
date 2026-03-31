@@ -139,7 +139,3 @@ mod tests {
         assert!(result.contains("\x1b[34"));
     }
 }
-
-fn main() {
-    println!("Run tests with cargo test instead");
-}
