@@ -1,3 +1,23 @@
+//! Core state management module for the spreadsheet viewer
+//!
+//! This module provides the `SheetsState` struct which manages all aspects of
+//! spreadsheet data, display configuration, and user interaction state.
+//!
+//! ## Data Model
+//!
+//! The state stores:
+//! - Headers and rows from the loaded spreadsheet
+//! - Scroll position and selection state
+//! - User preferences (view mode, colors, etc.)
+//! - File metadata and modification tracking
+//!
+//! ## State Management
+//!
+//! The state is designed to be:
+//! - Serializable for persistence across sessions
+//! - Thread-safe for concurrent access
+//! - Efficient for large datasets
+
 use crate::config::SheetsConfig;
 use crate::data_loader::{load_data, LoadedData};
 use crate::layout::LayoutCache;

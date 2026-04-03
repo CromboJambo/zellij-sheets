@@ -1,9 +1,23 @@
 // Zellij Sheets - UI Rendering Module
 
+use crate::config::{BehaviorConfig, DisplayConfig, SheetsConfig, ThemeConfig};
 use crate::layout::{fit_cell, ColumnLayout, LayoutEngine};
 use crate::state::{DataType, SheetsState, StatusLevel};
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum UiError {
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
+
+    #[error("Rendering error: {0}")]
+    RenderError(String),
+
+    #[error("Color formatting error: {0}")]
+    ColorError(String),
+}
+
+pub type Result<T> = std::result::Result<T, UiError>;
 
 #[derive(Default)]
 pub struct Colors {
@@ -42,20 +56,6 @@ impl Colors {
     }
 }
 
-#[derive(Debug, Error)]
-pub enum UiError {
-    #[error("IO error: {0}")]
-    IoError(#[from] std::io::Error),
-
-    #[error("Rendering error: {0}")]
-    RenderError(String),
-
-    #[error("Color formatting error: {0}")]
-    ColorError(String),
-}
-
-pub type Result<T> = std::result::Result<T, UiError>;
-
 pub struct UiRenderer {
     use_colors: bool,
     theme: Option<ThemeConfig>,
@@ -65,41 +65,6 @@ pub struct UiRenderer {
 impl Default for UiRenderer {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ThemeConfig {
-    pub header_fg: String,
-    pub header_bg: String,
-    pub selected_fg: String,
-    pub selected_bg: String,
-    pub current_row_fg: String,
-    pub current_row_bg: String,
-    pub separator_fg: String,
-    pub data_type_number: String,
-    pub data_type_string: String,
-    pub data_type_boolean: String,
-    pub data_type_empty: String,
-    pub data_type_date: String,
-}
-
-impl Default for ThemeConfig {
-    fn default() -> Self {
-        Self {
-            header_fg: "255".to_string(),
-            header_bg: "33".to_string(),
-            selected_fg: "0".to_string(),
-            selected_bg: "39".to_string(),
-            current_row_fg: "255".to_string(),
-            current_row_bg: "33".to_string(),
-            separator_fg: "240".to_string(),
-            data_type_number: "32".to_string(),
-            data_type_string: "33".to_string(),
-            data_type_boolean: "35".to_string(),
-            data_type_empty: "90".to_string(),
-            data_type_date: "33".to_string(),
-        }
     }
 }
 
@@ -140,10 +105,9 @@ impl UiRenderer {
     fn draw_header(&self, state: &SheetsState) -> Result<String> {
         let theme = self.get_theme();
         let header_style = format!(
-            "\x1b[38;5;{}m\x1b[48;5;{}m",
-            theme.header_fg, theme.header_bg
+            "\x1b[48;5;{}m\x1b[38;5;{}m",
+            theme.header_background, theme.header_text
         );
-        let sep_style = format!("\x1b[38;5;{}m", theme.separator_fg);
         let reset = "\x1b[0m";
         let mode_label = state
             .get_view_mode()
@@ -157,15 +121,21 @@ impl UiRenderer {
             state.file_name(),
             state.row_count(),
             mode_label,
-            sep_style,
+            reset,
         );
 
-        Ok(format!("{}{}", header, reset))
+        Ok(header)
     }
 
     fn draw_separator(&self, state: &SheetsState) -> Result<String> {
+        let theme = self.get_theme();
         let width = state.get_width().unwrap_or(80);
-        Ok(format!("\x1b[38;5;240m{}\x1b[0m", "─".repeat(width)))
+        Ok(format!(
+            "\x1b[48;5;{}m\x1b[38;5;{}m{}\x1b[0m",
+            theme.header_background,
+            theme.header_text,
+            "─".repeat(width)
+        ))
     }
 
     fn draw_data_rows(&self, lines: &mut Vec<String>, state: &SheetsState) -> Result<()> {
@@ -191,7 +161,10 @@ impl UiRenderer {
 
     fn draw_footer(&self, state: &SheetsState) -> Result<String> {
         let theme = self.get_theme();
-        let sep_style = format!("\x1b[38;5;{}m", theme.separator_fg);
+        let sep_style = format!(
+            "\x1b[48;5;{}m\x1b[38;5;{}m",
+            theme.header_background, theme.header_text
+        );
         let reset = "\x1b[0m";
         let mut footer = format!(
             "{}Keys: Up/Down, PgUp/PgDn, Home/End, q/Ctrl-C{}",
@@ -228,15 +201,21 @@ impl UiRenderer {
             let fitted = fit_cell(value, width);
 
             let cell_value = if is_header {
-                format!("\x1b[1;38;5;{}m{}\x1b[0m", theme.header_fg, fitted)
+                format!(
+                    "\x1b[1;48;5;{}m\x1b[38;5;{}m{}\x1b[0m",
+                    theme.header_background, theme.header_text, fitted
+                )
             } else {
                 let color_code = match state.get_data_type(col).unwrap_or(DataType::String) {
-                    DataType::Number => theme.data_type_number.as_str(),
-                    DataType::Boolean => theme.data_type_boolean.as_str(),
-                    DataType::Empty => theme.data_type_empty.as_str(),
-                    DataType::String => theme.data_type_string.as_str(),
+                    DataType::Number => theme.accent_colors.number.as_str(),
+                    DataType::Boolean => theme.accent_colors.boolean.as_str(),
+                    DataType::Empty => theme.accent_colors.date.as_str(),
+                    DataType::String => theme.accent_colors.string.as_str(),
                 };
-                format!("\x1b[{}m{}\x1b[0m", color_code, fitted)
+                format!(
+                    "\x1b[48;5;{}m\x1b[38;5;{}m{}\x1b[0m",
+                    theme.background, color_code, fitted
+                )
             };
 
             cells.push(cell_value);
@@ -256,7 +235,7 @@ impl UiRenderer {
             color_code
         };
         if self.use_colors {
-            format!("\x1b[{}m", color)
+            format!("\x1b[38;5;{}m", color)
         } else {
             String::new()
         }
@@ -292,8 +271,8 @@ mod tests {
     #[test]
     fn test_theme_config_default() {
         let theme = ThemeConfig::default();
-        assert_eq!(theme.header_fg, "255");
-        assert_eq!(theme.header_bg, "33");
+        assert_eq!(theme.header_background, "#0055AA");
+        assert_eq!(theme.header_text, "#FFFFFF");
     }
 
     #[test]

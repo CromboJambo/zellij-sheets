@@ -128,7 +128,6 @@ impl ZellijPlugin for PluginState {
             _ => false,
         }
     }
-
     fn render(&mut self, rows: usize, cols: usize) {
         self.sheets.resize(cols, rows);
 

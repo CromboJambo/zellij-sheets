@@ -2,6 +2,8 @@
 // Handles plugin configuration and settings
 
 use serde::{Deserialize, Serialize};
+use std::default::Default;
+use std::default::Default;
 
 /// Main configuration structure for the spreadsheet viewer
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -148,46 +150,40 @@ pub enum ColumnWidthMode {
 impl Default for SheetsConfig {
     fn default() -> Self {
         Self {
-            theme: ThemeConfig {
-                background: "#000000".to_string(),
-                text: "#FFFFFF".to_string(),
-                header_background: "#0055AA".to_string(),
-                header_text: "#FFFFFF".to_string(),
-                selected_background: "#00AAFF".to_string(),
-                selected_text: "#000000".to_string(),
-                column_header_background: "#004488".to_string(),
-                column_header_text: "#00FFFF".to_string(),
-                accent_colors: AccentColors {
-                    number: "#00FF00".to_string(),
-                    string: "#FFFF00".to_string(),
-                    boolean: "#FF00FF".to_string(),
-                    date: "#FF8800".to_string(),
-                },
+            theme: ThemeConfig::default(),
             },
-            display: DisplayConfig {
-                preview_rows: 20,
-                show_column_numbers: true,
-                show_row_numbers: false,
-                truncate_long_values: true,
-                max_cell_length: 50,
-                show_data_types: false,
-            },
-            behavior: BehaviorConfig {
-                auto_refresh: false,
-                auto_refresh_interval: 5,
-                scroll_speed: ScrollSpeed {
-                    normal: 1.0,
-                    fast: 3.0,
-                },
-                page_size: 10,
-            },
-            columns: ColumnConfig {
-                auto_width: true,
-                fixed_widths: vec![],
-                min_column_width: 8,
-                max_column_width: 40,
-                width_mode: ColumnWidthMode::Auto,
-            },
+            display: DisplayConfig::default(),
+            behavior: BehaviorConfig::default(),
+            columns: ColumnConfig::default(),
+        }
+    }
+}
+
+/// Default configuration
+impl Default for ThemeConfig {
+    fn default() -> Self {
+        Self {
+            background: "#000000".to_string(),
+            text: "#FFFFFF".to_string(),
+            header_background: "#0055AA".to_string(),
+            header_text: "#FFFFFF".to_string(),
+            selected_background: "#00AAFF".to_string(),
+            selected_text: "#000000".to_string(),
+            column_header_background: "#004488".to_string(),
+            column_header_text: "#00FFFF".to_string(),
+            accent_colors: AccentColors::default(),
+        }
+    }
+}
+
+/// Default configuration
+impl Default for AccentColors {
+    fn default() -> Self {
+        Self {
+            number: "#00FF00".to_string(),
+            string: "#FFFF00".to_string(),
+            boolean: "#FF00FF".to_string(),
+            date: "#FF8800".to_string(),
         }
     }
 }
