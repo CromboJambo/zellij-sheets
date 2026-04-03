@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use zellij_sheets::{ui, ui::UiRenderer, SheetsConfig, SheetsState};
+use zellij_sheets::{ui::UiRenderer, SheetsConfig, SheetsState};
 use zellij_tile::prelude::*;
 
 #[derive(Default)]
