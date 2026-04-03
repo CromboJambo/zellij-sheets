@@ -49,8 +49,8 @@ impl LayoutCache {
         let col_count = headers.len();
         let mut columns = Vec::with_capacity(col_count);
 
-        for col in 0..col_count {
-            let header_width = UnicodeWidthStr::width(headers[col].as_str());
+        for (col, header) in headers.iter().enumerate() {
+            let header_width = UnicodeWidthStr::width(header.as_str());
 
             let mut max_content_width: usize = 0;
             let mut min_content_width: usize = 0;
@@ -168,7 +168,7 @@ impl LayoutEngine {
     }
 
     /// Iteratively shed width from the widest shrinkable column.
-    fn shrink(&self, widths: &mut Vec<usize>, available: usize, cache: &LayoutCache) {
+    fn shrink(&self, widths: &mut [usize], available: usize, cache: &LayoutCache) {
         for use_soft_floor in [true, false] {
             loop {
                 let total: usize = widths.iter().sum();
