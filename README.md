@@ -35,6 +35,12 @@ Build the Zellij plugin:
 cargo build --release --target wasm32-wasip1
 ```
 
+Build the optional smoke-test plugin binaries explicitly for the Zellij wasm target:
+
+```bash
+cargo build --target wasm32-wasip1 --features plugin-smoke --bin plugin-smoke --bin plugin-state-smoke
+```
+
 The plugin artifact is:
 
 ```text
@@ -63,7 +69,7 @@ layout {
 }
 ```
 
-An example layout is included at `layouts/spreadsheet.kdl`.
+An example alias-based layout is included at `layouts/spreadsheet.kdl`; it assumes you registered the `zellij-sheets` plugin in your Zellij config first.
 Create the sample file before launching the example layout:
 
 ```bash

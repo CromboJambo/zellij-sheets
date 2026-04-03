@@ -20,6 +20,10 @@ include = [
     "CHANGELOG.md",
 ]
 
+[features]
+default = []
+plugin-smoke = []
+
 [dependencies]
 calamine = "0.33"
 anyhow = "1.0"
@@ -31,6 +35,16 @@ thiserror = "2.0"
 csv = "1.3"
 zellij-tile = "0.44.0"
 unicode-width = "0.2"
+
+[[bin]]
+name = "plugin-smoke"
+path = "src/bin/plugin-smoke.rs"
+required-features = ["plugin-smoke"]
+
+[[bin]]
+name = "plugin-state-smoke"
+path = "src/bin/plugin-state-smoke.rs"
+required-features = ["plugin-smoke"]
 
 [package.metadata.docs.rs]
 all-features = true

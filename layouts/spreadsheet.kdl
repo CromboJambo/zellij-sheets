@@ -1,6 +1,6 @@
 layout {
     pane {
-        plugin location="file:/home/crombo/zellij-sheets/target/wasm32-wasip1/release/zellij-sheets.wasm" {
+        plugin location="zellij-sheets" {
             input "/tmp/zellij-sheets-sample.csv"
         }
     }
