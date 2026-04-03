@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use zellij_sheets::{fit_cell, ColumnLayout, LayoutEngine, SheetsConfig, SheetsState};
 use zellij_tile::prelude::*;
@@ -32,8 +32,7 @@ impl PluginState {
             return;
         };
 
-        let host_path = to_host_path(&input_path);
-        match self.sheets.load_file(host_path) {
+        match self.sheets.load_file(input_path.clone()) {
             Ok(()) => {
                 self.status = None;
             }
@@ -171,15 +170,6 @@ impl ZellijPlugin for PluginState {
         println!("{}", "-".repeat(cols));
         println!("Keys: Up/Down  PgUp/PgDn  Home/End  q/Ctrl-C");
     }
-}
-
-fn to_host_path(path: &Path) -> PathBuf {
-    if path.starts_with("/host") {
-        return path.to_path_buf();
-    }
-
-    let relative = path.strip_prefix("/").unwrap_or(path);
-    Path::new("/host").join(relative)
 }
 
 /// Build a single display row.
