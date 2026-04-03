@@ -88,28 +88,41 @@ impl PluginState {
 
 impl ZellijPlugin for PluginState {
     fn load(&mut self, configuration: BTreeMap<String, String>) {
-        subscribe(&[EventType::Key, EventType::PermissionRequestResult]);
+        subscribe(&[
+            EventType::Key,
+            EventType::PermissionRequestResult,
+            EventType::HostFolderChanged,
+            EventType::FailedToChangeHostFolder,
+        ]);
         set_selectable(true);
         self.initialize_from_config(configuration);
 
         if self.input_path.is_some() {
-            request_permission(&[
-                PermissionType::ChangeApplicationState,
-                PermissionType::FullHdAccess,
-            ]);
+            request_permission(&[PermissionType::FullHdAccess]);
         }
     }
 
     fn update(&mut self, event: Event) -> bool {
         match event {
             Event::PermissionRequestResult(PermissionStatus::Granted) => {
-                change_host_folder(PathBuf::from("/"));
+                self.status = Some("Permission granted. Loading file...".to_string());
                 self.load_input();
                 true
             }
             Event::PermissionRequestResult(PermissionStatus::Denied) => {
                 self.status =
                     Some("Permission denied. This plugin needs hard-drive access.".to_string());
+                true
+            }
+            Event::HostFolderChanged(path) => {
+                self.status = Some(format!("Host folder changed to {}", path.display()));
+                true
+            }
+            Event::FailedToChangeHostFolder(error) => {
+                self.status = Some(format!(
+                    "Failed to change host folder: {}",
+                    error.unwrap_or_else(|| "unknown error".to_string())
+                ));
                 true
             }
             Event::Key(key) => self.handle_key(key),
