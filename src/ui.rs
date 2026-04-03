@@ -1,6 +1,7 @@
 // Zellij Sheets - UI Rendering Module
 // Enhanced with better error handling, color support, and improved rendering
 
+use crate::layout::{fit_cell, LayoutEngine};
 use crate::state::{DataType, SheetsState, StatusLevel};
 use serde::{Deserialize, Serialize};
 
@@ -63,6 +64,7 @@ pub type Result<T> = std::result::Result<T, UiError>;
 pub struct UiRenderer {
     use_colors: bool,
     theme: Option<ThemeConfig>,
+    layout_engine: LayoutEngine,
 }
 
 impl Default for UiRenderer {
@@ -108,18 +110,21 @@ impl Default for ThemeConfig {
 
 impl UiRenderer {
     pub fn new() -> Self {
-        Self {
-            use_colors: true,
-            theme: None,
-        }
-    }
+       pub fn new() -> Self {
+           Self {
+               use_colors: true,
+               theme: None,
+               layout_engine: LayoutEngine::new(),
+           }
+       }
 
-    pub fn with_theme(theme: ThemeConfig) -> Self {
-        Self {
-            use_colors: true,
-            theme: Some(theme),
-        }
-    }
+       pub fn with_theme(theme: ThemeConfig) -> Self {
+           Self {
+               use_colors: true,
+               theme: Some(theme),
+               layout_engine: LayoutEngine::new(),
+           }
+       }
 
     pub fn set_use_colors(&mut self, use_colors: bool) {
         self.use_colors = use_colors;
@@ -184,26 +189,33 @@ impl UiRenderer {
 
     /// Draw the data rows
     fn draw_data_rows(&self, lines: &mut Vec<String>, state: &SheetsState) -> Result<()> {
-        let (start, end) = state.row_range();
+            /// Draw the data rows
+            fn draw_data_rows(&self, lines: &mut Vec<String>, state: &SheetsState) -> Result<()> {
+                let width = state.get_width().unwrap_or(80);
 
-        // Draw headers
-        if let Some(headers) = state.headers() {
-            let header_line = self.render_row(headers, state, true)?;
-            lines.push(header_line);
-        }
+                // Layout phase: pure arithmetic against the prepared cache.
+                let layouts = self.layout_engine.resolve(&state.layout_cache, width);
 
-        // Draw data rows
-        for row in start..end {
-            if let Some(values) = state.get_row(row) {
-                let is_selected = row == state.selected_row();
-                let prefix = if is_selected { ">" } else { " " };
-                let row_line = self.render_row(&values, state, false)?;
-                lines.push(format!("{}{}", prefix, row_line));
+                let (start, end) = state.row_range();
+
+                // Draw headers
+                if let Some(headers) = state.headers() {
+                    let header_line = self.render_row(headers, state, &layouts, true)?;
+                    lines.push(header_line);
+                }
+
+                // Draw data rows
+                for row in start..end {
+                    if let Some(values) = state.get_row(row) {
+                        let is_selected = row == state.selected_row();
+                        let prefix = if is_selected { ">" } else { " " };
+                        let row_line = self.render_row(&values, state, &layouts, false)?;
+                        lines.push(format!("{}{}", prefix, row_line));
+                    }
+                }
+
+                Ok(())
             }
-        }
-
-        Ok(())
-    }
 
     /// Draw the footer section
     fn draw_footer(&self, state: &SheetsState) -> Result<String> {
@@ -239,25 +251,43 @@ impl UiRenderer {
         state: &SheetsState,
         is_header: bool,
     ) -> Result<String> {
-        let mut rendered = Vec::new();
+           /// Render a single row with proper formatting
+           fn render_row(
+               &self,
+               values: &[String],
+               state: &SheetsState,
+               layouts: &[crate::layout::ColumnLayout],
+               is_header: bool,
+           ) -> Result<String> {
+               let mut cells = Vec::new();
+               let theme = self.get_theme();
 
-        for (col, value) in values.iter().enumerate() {
-            let cell_value = if is_header {
-                // Column headers always use the header foreground color
-                format!(
-                    "\x1b[1;38;5;{}m{}\x1b[0m",
-                    self.get_theme().header_fg,
-                    value
-                )
-            } else {
-                let data_type = state.get_data_type(col).unwrap_or(DataType::String);
-                self.format_cell(value, data_type)?
-            };
-            rendered.push(cell_value);
-        }
+               for (col, value) in values.iter().enumerate() {
+                   let width = layouts
+                       .get(col)
+                       .map(|l| l.resolved_width)
+                       .unwrap_or(8);
 
-        Ok(rendered.join(" | "))
-    }
+                   let fitted = fit_cell(value, width);
+
+                   let cell_value = if is_header {
+                       format!("\x1b[1;38;5;{}m{}\x1b[0m", theme.header_fg, fitted)
+                   } else {
+                       let data_type = state.get_data_type(col).unwrap_or(DataType::String);
+                       let color_code = match data_type {
+                           DataType::Number  => "32",
+                           DataType::Boolean => "35",
+                           DataType::Empty   => "90",
+                           DataType::String  => "33",
+                       };
+                       format!("\x1b[{}m{}\x1b[0m", color_code, fitted)
+                   };
+
+                   cells.push(cell_value);
+               }
+
+               Ok(cells.join(" | "))
+           }
 
     /// Format a single cell value
     fn format_cell(&self, value: &str, data_type: DataType) -> Result<String> {

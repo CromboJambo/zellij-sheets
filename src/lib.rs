@@ -6,6 +6,7 @@
 
 pub mod config;
 pub mod data_loader;
+pub mod layout;
 pub mod state;
 pub mod ui;
 
@@ -17,3 +18,6 @@ pub use data_loader::{file_exists, get_file_extension, get_file_name, get_file_s
 
 /// Core spreadsheet state and data types
 pub use state::{DataType, SheetsState};
+
+/// Layout and rendering engine
+pub use layout::{fit_cell, ColumnLayout, LayoutCache, LayoutEngine};

@@ -1,5 +1,6 @@
 use crate::config::SheetsConfig;
 use crate::data_loader::{load_data, LoadedData};
+use crate::layout::LayoutCache;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -110,6 +111,7 @@ pub struct SheetsState {
     show_column_numbers: bool,
     show_grid_lines: bool,
     show_data_types: bool,
+    layout_cache: LayoutCache,
 }
 
 impl Default for SheetsState {
@@ -143,6 +145,7 @@ impl SheetsState {
             show_column_numbers: true,
             show_grid_lines: true,
             show_data_types: false,
+            layout_cache: LayoutCache::default(),
         }
     }
 
@@ -151,6 +154,7 @@ impl SheetsState {
         self.rows = data.rows;
         self.selected_row = 0;
         self.scroll_row = 0;
+        self.layout_cache = LayoutCache::prepare(&self.headers, &self.rows);
         self.sync_bounds();
         Ok(())
     }
