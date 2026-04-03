@@ -3,7 +3,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::default::Default;
-use std::default::Default;
 
 /// Main configuration structure for the spreadsheet viewer
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -151,7 +150,6 @@ impl Default for SheetsConfig {
     fn default() -> Self {
         Self {
             theme: ThemeConfig::default(),
-            },
             display: DisplayConfig::default(),
             behavior: BehaviorConfig::default(),
             columns: ColumnConfig::default(),
@@ -184,6 +182,55 @@ impl Default for AccentColors {
             string: "#FFFF00".to_string(),
             boolean: "#FF00FF".to_string(),
             date: "#FF8800".to_string(),
+        }
+    }
+}
+
+/// Default configuration
+impl Default for DisplayConfig {
+    fn default() -> Self {
+        Self {
+            preview_rows: 20,
+            show_column_numbers: true,
+            show_row_numbers: false,
+            truncate_long_values: true,
+            max_cell_length: 50,
+            show_data_types: false,
+        }
+    }
+}
+
+/// Default configuration
+impl Default for BehaviorConfig {
+    fn default() -> Self {
+        Self {
+            auto_refresh: false,
+            auto_refresh_interval: 5,
+            scroll_speed: ScrollSpeed::default(),
+            page_size: 10,
+        }
+    }
+}
+
+/// Default configuration
+impl Default for ScrollSpeed {
+    fn default() -> Self {
+        Self {
+            normal: 1.0,
+            fast: 3.0,
+        }
+    }
+}
+
+/// Default configuration
+impl Default for ColumnConfig {
+    fn default() -> Self {
+        Self {
+            auto_width: true,
+            fixed_widths: Vec::new(),
+            min_column_width: 8,
+            max_column_width: 40,
+            width_mode: ColumnWidthMode::Auto,
         }
     }
 }

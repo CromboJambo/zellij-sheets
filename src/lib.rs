@@ -33,7 +33,9 @@ pub mod state;
 pub mod ui;
 
 /// Configuration and display settings for the spreadsheet viewer
-pub use config::{BehaviorConfig, ColumnConfig, DisplayConfig, SheetsConfig, ThemeConfig};
+pub use config::{
+    BehaviorConfig, ColumnConfig, DisplayConfig, ScrollSpeed, SheetsConfig, ThemeConfig,
+};
 
 /// Utility functions for file operations and data loading
 pub use data_loader::{file_exists, get_file_extension, get_file_name, get_file_size, load_data};
@@ -45,6 +47,4 @@ pub use state::{DataType, SheetsState};
 pub use layout::{fit_cell, ColumnLayout, LayoutCache, LayoutEngine};
 
 /// UI rendering types
-pub use ui::{
-    BehaviorConfig, Colors, DisplayConfig, ScrollSpeed, ThemeConfig, UiError, UiRenderer,
-};
+pub use ui::{Colors, UiError, UiRenderer};

@@ -1,6 +1,6 @@
 // Zellij Sheets - UI Rendering Module
 
-use crate::config::{BehaviorConfig, DisplayConfig, SheetsConfig, ThemeConfig};
+use crate::config::ThemeConfig;
 use crate::layout::{fit_cell, ColumnLayout, LayoutEngine};
 use crate::state::{DataType, SheetsState, StatusLevel};
 use thiserror::Error;

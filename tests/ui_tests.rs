@@ -1,7 +1,7 @@
 use std::sync::Arc;
-use zellij_sheets::config::SheetsConfig;
+use zellij_sheets::config::{AccentColors, SheetsConfig, ThemeConfig};
 use zellij_sheets::state::SheetsState;
-use zellij_sheets::ui::{ThemeConfig, UiRenderer};
+use zellij_sheets::ui::UiRenderer;
 
 #[cfg(test)]
 mod tests {
@@ -29,31 +29,33 @@ mod tests {
     #[test]
     fn test_theme_config_default() {
         let theme = ThemeConfig::default();
-        assert_eq!(theme.header_fg, "255");
-        assert_eq!(theme.header_bg, "33");
-        assert_eq!(theme.selected_fg, "0");
-        assert_eq!(theme.selected_bg, "39");
+        assert_eq!(theme.header_background, "#0055AA");
+        assert_eq!(theme.header_text, "#FFFFFF");
+        assert_eq!(theme.selected_background, "#00AAFF");
+        assert_eq!(theme.selected_text, "#000000");
     }
 
     #[test]
     fn test_theme_config_custom() {
         let theme = ThemeConfig {
-            header_fg: "255".to_string(),
-            header_bg: "33".to_string(),
-            selected_fg: "0".to_string(),
-            selected_bg: "39".to_string(),
-            current_row_fg: "255".to_string(),
-            current_row_bg: "33".to_string(),
-            separator_fg: "240".to_string(),
-            data_type_number: "32".to_string(),
-            data_type_string: "33".to_string(),
-            data_type_boolean: "35".to_string(),
-            data_type_empty: "90".to_string(),
-            data_type_date: "33".to_string(),
+            background: "#111111".to_string(),
+            text: "#EEEEEE".to_string(),
+            header_background: "#222222".to_string(),
+            header_text: "#DDDDDD".to_string(),
+            selected_background: "#333333".to_string(),
+            selected_text: "#CCCCCC".to_string(),
+            column_header_background: "#444444".to_string(),
+            column_header_text: "#BBBBBB".to_string(),
+            accent_colors: AccentColors {
+                number: "#00FF00".to_string(),
+                string: "#FFFF00".to_string(),
+                boolean: "#FF00FF".to_string(),
+                date: "#FF8800".to_string(),
+            },
         };
 
-        assert_eq!(theme.header_fg, "255");
-        assert_eq!(theme.selected_fg, "0");
+        assert_eq!(theme.header_background, "#222222");
+        assert_eq!(theme.selected_text, "#CCCCCC");
     }
 
     #[test]
