@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use zellij_sheets::{ui::UiRenderer, SheetsConfig, SheetsState};
+use zellij_sheets::{fit_cell, ColumnLayout, LayoutEngine, SheetsConfig, SheetsState};
 use zellij_tile::prelude::*;
 
 #[derive(Default)]
@@ -121,21 +121,93 @@ impl ZellijPlugin for PluginState {
         self.sheets.resize(cols, rows);
 
         if let Some(status) = &self.status {
-            println!("Zellij Sheets");
-            println!();
-            println!("{}", status);
-            println!();
-            println!("Use plugin config: input=\"/absolute/path/to/file.csv\"");
+            print_text_with_coordinates(
+                Text::new("Zellij Sheets").color_all(0),
+                0,
+                0,
+                Some(cols),
+                None,
+            );
+            print_text_with_coordinates(Text::new(status), 0, 2, Some(cols), None);
+            print_text_with_coordinates(
+                Text::new("Use plugin config: input=\"/absolute/path/to/file.csv\"").dim_all(),
+                0,
+                4,
+                Some(cols),
+                None,
+            );
             return;
         }
 
-        let renderer = UiRenderer::new();
-        let rendered = renderer
-            .draw_ui(&self.sheets)
-            .unwrap_or_else(|e| format!("Error: {}", e));
-        for line in rendered.lines() {
-            println!("{line}");
+        let engine = LayoutEngine::new();
+        let layouts = engine.resolve(&self.sheets.layout_cache, cols);
+
+        let mut y = 0;
+
+        // Header bar
+        let file_info = format!(
+            "Zellij Sheets  {}  {} rows",
+            self.sheets.file_name(),
+            self.sheets.row_count(),
+        );
+        print_text_with_coordinates(
+            Text::new(&file_info).selected().color_all(0),
+            0,
+            y,
+            Some(cols),
+            None,
+        );
+        y += 1;
+
+        // Separator
+        print_text_with_coordinates(
+            Text::new("─".repeat(cols)).dim_all(),
+            0,
+            y,
+            Some(cols),
+            None,
+        );
+        y += 1;
+
+        // Column headers row
+        if let Some(headers) = self.sheets.headers() {
+            let row: Vec<Text> = build_row(headers, &layouts, true, false);
+            print_table_with_coordinates(
+                Table::new().add_styled_row(row),
+                0,
+                y,
+                Some(cols),
+                None,
+            );
+            y += 1;
         }
+
+        // Data rows
+        let (start, end) = self.sheets.row_range();
+        for row_idx in start..end {
+            if let Some(values) = self.sheets.get_row(row_idx) {
+                let is_selected = row_idx == self.sheets.selected_row();
+                let row: Vec<Text> = build_row(&values, &layouts, false, is_selected);
+                print_table_with_coordinates(
+                    Table::new().add_styled_row(row),
+                    0,
+                    y,
+                    Some(cols),
+                    None,
+                );
+                y += 1;
+            }
+        }
+
+        // Footer
+        let footer = "Keys: ↑/↓  PgUp/PgDn  Home/End  q/Ctrl-C";
+        print_text_with_coordinates(
+            Text::new(footer).dim_all(),
+            0,
+            rows.saturating_sub(1),
+            Some(cols),
+            None,
+        );
     }
 }
 
@@ -146,4 +218,34 @@ fn to_host_path(path: &Path) -> PathBuf {
 
     let relative = path.strip_prefix("/").unwrap_or(path);
     Path::new("/host").join(relative)
+}
+
+/// Build a single `Vec<Text>` row for `print_table_with_coordinates`.
+///
+/// - `is_header`: bold + color_all(0) (uses theme primary color)
+/// - `is_selected`: selected() highlight
+/// - plain data rows: unstyled
+fn build_row(
+    values: &[String],
+    layouts: &[ColumnLayout],
+    is_header: bool,
+    is_selected: bool,
+) -> Vec<Text> {
+    values
+        .iter()
+        .enumerate()
+        .map(|(col, value)| {
+            let width = layouts.get(col).map(|l| l.resolved_width).unwrap_or(8);
+            let fitted = fit_cell(value, width);
+            let text = Text::new(fitted);
+            let text = if is_header {
+                text.color_all(0)
+            } else if is_selected {
+                text.selected()
+            } else {
+                text
+            };
+            text
+        })
+        .collect()
 }
