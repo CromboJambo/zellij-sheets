@@ -111,7 +111,7 @@ pub struct SheetsState {
     show_column_numbers: bool,
     show_grid_lines: bool,
     show_data_types: bool,
-    layout_cache: LayoutCache,
+    pub layout_cache: LayoutCache,
 }
 
 impl Default for SheetsState {
@@ -545,6 +545,7 @@ pub fn deserialize_state(json: &str) -> Result<SheetsState> {
     state.show_column_numbers = snapshot.show_column_numbers;
     state.show_grid_lines = snapshot.show_grid_lines;
     state.show_data_types = snapshot.show_data_types;
+    state.layout_cache = LayoutCache::prepare(&state.headers, &state.rows);
     Ok(state)
 }
 
