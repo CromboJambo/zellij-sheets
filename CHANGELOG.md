@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.1.1] - 2026-03-30
+## [0.1.1] - 2026-04-03
 ### Fixed
 - Unified theme configuration between modules
 - Fixed color rendering inconsistencies in UI
@@ -17,3 +17,4 @@ All notable changes to this project will be documented in this file.
 - Zellij plugin integration
 - Native CLI for local testing
 - Configurable display settings
+job ordunposted 
