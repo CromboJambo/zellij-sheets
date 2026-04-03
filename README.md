@@ -57,13 +57,18 @@ Then use it in a layout and pass the file path through plugin configuration:
 layout {
     pane {
         plugin location="zellij-sheets" {
-            input "/absolute/path/to/data.csv"
+            input "/tmp/zellij-sheets-sample.csv"
         }
     }
 }
 ```
 
 An example layout is included at `layouts/spreadsheet.kdl`.
+Create the sample file before launching the example layout:
+
+```bash
+printf 'a,b\n1,2\n3,4\n' > /tmp/zellij-sheets-sample.csv
+```
 
 ## CLI Usage
 

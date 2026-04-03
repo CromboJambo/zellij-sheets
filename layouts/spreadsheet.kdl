@@ -1,7 +1,7 @@
 layout {
-    pane borderless=false {
-        plugin location="file:/home/crombo/zellij-sheets/target/wasm32-wasip1/release/zellij_sheets.wasm" {
-            input "/home/crombo/Documents/JobmaterialsTESTDATA.csv"
+    pane {
+        plugin location="file:/home/crombo/zellij-sheets/target/wasm32-wasip1/release/zellij-sheets.wasm" {
+            input "/tmp/zellij-sheets-sample.csv"
         }
     }
 }
