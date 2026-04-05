@@ -317,6 +317,34 @@ pub fn validate_config(config: &SheetsConfig) -> Result<(), ConfigError> {
         ));
     }
 
+    // Validate column configuration
+    if config.columns.min_column_width == 0 {
+        return Err(ConfigError::InvalidConfig(
+            "min_column_width must be greater than 0".to_string(),
+        ));
+    }
+
+    if config.columns.max_column_width == 0 {
+        return Err(ConfigError::InvalidConfig(
+            "max_column_width must be greater than 0".to_string(),
+        ));
+    }
+
+    if config.columns.min_column_width > config.columns.max_column_width {
+        return Err(ConfigError::InvalidConfig(
+            "min_column_width must not exceed max_column_width".to_string(),
+        ));
+    }
+
+    // Validate fixed widths if provided
+    for &width in &config.columns.fixed_widths {
+        if width == 0 {
+            return Err(ConfigError::InvalidConfig(
+                "fixed_widths must be greater than 0".to_string(),
+            ));
+        }
+    }
+
     Ok(())
 }
 
