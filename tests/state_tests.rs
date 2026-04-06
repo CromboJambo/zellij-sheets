@@ -3,8 +3,8 @@ use std::sync::Arc;
 use zellij_sheets::config::SheetsConfig;
 use zellij_sheets::data_loader::{DataSource, LoadedData};
 use zellij_sheets::state::{
-    deserialize_state, serialize_state, DataType, SheetsState, SortDirection, StatusLevel,
-    StatusMessage, ViewMode,
+    deserialize_state, serialize_state, DataType, SearchDirection, SheetsState, SortDirection,
+    StatusLevel, StatusMessage, ViewMode,
 };
 
 #[cfg(test)]
@@ -403,6 +403,87 @@ mod tests {
 
         state.set_search_query(None);
         assert_eq!(state.get_search_query().unwrap(), None);
+    }
+
+    #[test]
+    fn test_state_begin_search_sets_mode_and_direction() {
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+
+        state.begin_search(SearchDirection::Backward);
+        state.search_append('f');
+        state.search_append('o');
+        state.search_append('o');
+
+        assert!(state.is_search_active());
+        assert_eq!(state.search_direction(), SearchDirection::Backward);
+        assert_eq!(state.get_search_query().unwrap(), Some("foo".to_string()));
+    }
+
+    #[test]
+    fn test_state_search_commit_wraps_forward() {
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.resize(40, 12);
+        state
+            .init(LoadedData {
+                headers: vec!["name".into(), "city".into()],
+                rows: vec![
+                    vec!["alice".into(), "boston".into()],
+                    vec!["bob".into(), "denver".into()],
+                    vec!["carol".into(), "austin".into()],
+                ],
+                source: DataSource::Csv,
+            })
+            .unwrap();
+
+        state.begin_search(SearchDirection::Forward);
+        state.search_append('a');
+        state.search_append('u');
+        state.search_append('s');
+        assert!(state.search_commit());
+        assert!(!state.is_search_active());
+        assert_eq!(state.selected_row(), 2);
+        assert_eq!(state.selected_col(), 1);
+    }
+
+    #[test]
+    fn test_state_search_prev_moves_backward() {
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.resize(40, 12);
+        state
+            .init(LoadedData {
+                headers: vec!["name".into(), "city".into()],
+                rows: vec![
+                    vec!["alpha".into(), "boston".into()],
+                    vec!["bravo".into(), "austin".into()],
+                    vec!["charlie".into(), "dallas".into()],
+                ],
+                source: DataSource::Csv,
+            })
+            .unwrap();
+        state.go_to_bottom();
+        state.go_to_last_col();
+        state.set_search_query(Some("austin".to_string()));
+
+        assert!(state.search_prev());
+        assert_eq!(state.selected_row(), 1);
+        assert_eq!(state.selected_col(), 1);
+    }
+
+    #[test]
+    fn test_state_search_empty_query_is_noop() {
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.resize(40, 12);
+        state.init(sample_loaded_data(3, 3)).unwrap();
+
+        state.begin_search(SearchDirection::Forward);
+        assert!(!state.search_commit());
+        assert_eq!(state.get_search_query().unwrap(), None);
+        assert_eq!(state.selected_row(), 0);
+        assert_eq!(state.selected_col(), 0);
     }
 
     #[test]

@@ -1,11 +1,23 @@
 use std::sync::Arc;
 use zellij_sheets::config::{AccentColors, SheetsConfig, ThemeConfig};
-use zellij_sheets::state::SheetsState;
+use zellij_sheets::data_loader::{DataSource, LoadedData};
+use zellij_sheets::state::{SearchDirection, SheetsState};
 use zellij_sheets::ui::UiRenderer;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sample_data() -> LoadedData {
+        LoadedData {
+            headers: vec!["name".into(), "city".into()],
+            rows: vec![
+                vec!["alice".into(), "boston".into()],
+                vec!["bob".into(), "austin".into()],
+            ],
+            source: DataSource::Csv,
+        }
+    }
 
     #[test]
     fn test_ui_renderer_creation() {
@@ -118,6 +130,20 @@ mod tests {
         let state = SheetsState::new(config);
 
         assert!(renderer.draw_ui(&state).is_ok());
+    }
+
+    #[test]
+    fn test_ui_renderer_shows_active_search_query() {
+        let renderer = UiRenderer::new();
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.init(sample_data()).unwrap();
+        state.begin_search(SearchDirection::Forward);
+        state.search_append('a');
+        state.search_append('u');
+
+        let rendered = renderer.draw_ui(&state).unwrap();
+        assert!(rendered.contains("/au"));
     }
 
     #[test]

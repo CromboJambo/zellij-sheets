@@ -41,7 +41,7 @@ pub use config::{
 pub use data_loader::{file_exists, get_file_extension, get_file_name, get_file_size, load_data};
 
 /// Core spreadsheet state and data types
-pub use state::{DataType, SheetsState};
+pub use state::{cell_matches_query, DataType, SearchDirection, SheetsState};
 
 /// Layout and rendering engine
 pub use layout::{fit_cell, ColumnLayout, LayoutCache, LayoutEngine};

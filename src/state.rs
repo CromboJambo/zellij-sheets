@@ -63,6 +63,12 @@ pub enum StatusLevel {
     Error,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SearchDirection {
+    Forward,
+    Backward,
+}
+
 #[derive(Debug, Clone)]
 pub struct StatusMessage {
     pub message: String,
@@ -102,6 +108,8 @@ struct SheetsStateSnapshot {
     sort_direction: SortDirection,
     filter_expr: Option<String>,
     search_query: Option<String>,
+    search_active: bool,
+    search_direction: SearchDirection,
     file_path: Option<PathBuf>,
     last_error: Option<String>,
     show_row_numbers: bool,
@@ -129,6 +137,8 @@ pub struct SheetsState {
     sort_direction: SortDirection,
     filter_expr: Option<String>,
     search_query: Option<String>,
+    search_active: bool,
+    search_direction: SearchDirection,
     file_path: Option<PathBuf>,
     file_mod_time: Option<SystemTime>,
     last_error: Option<String>,
@@ -166,6 +176,8 @@ impl SheetsState {
             sort_direction: SortDirection::Ascending,
             filter_expr: None,
             search_query: None,
+            search_active: false,
+            search_direction: SearchDirection::Forward,
             file_path: None,
             file_mod_time: None,
             last_error: None,
@@ -492,6 +504,67 @@ impl SheetsState {
         Ok(self.search_query.clone())
     }
 
+    pub fn is_search_active(&self) -> bool {
+        self.search_active
+    }
+
+    pub fn search_direction(&self) -> SearchDirection {
+        self.search_direction
+    }
+
+    pub fn begin_search(&mut self, direction: SearchDirection) {
+        self.search_active = true;
+        self.search_direction = direction;
+        self.search_query = Some(String::new());
+    }
+
+    pub fn search_append(&mut self, ch: char) {
+        if !self.search_active {
+            return;
+        }
+
+        self.search_query.get_or_insert_with(String::new).push(ch);
+    }
+
+    pub fn search_backspace(&mut self) {
+        if !self.search_active {
+            return;
+        }
+
+        if let Some(query) = &mut self.search_query {
+            query.pop();
+        }
+    }
+
+    pub fn search_commit(&mut self) -> bool {
+        self.search_active = false;
+
+        if self.search_query.as_deref().unwrap_or_default().is_empty() {
+            self.search_query = None;
+            return false;
+        }
+
+        match self.search_direction {
+            SearchDirection::Forward => self.search_next(),
+            SearchDirection::Backward => self.search_prev(),
+        }
+    }
+
+    pub fn search_cancel(&mut self) {
+        self.search_active = false;
+        self.search_query = None;
+    }
+
+    pub fn search_next(&mut self) -> bool {
+        self.search_direction = SearchDirection::Forward;
+        self.find_and_select_match(SearchDirection::Forward)
+    }
+
+    pub fn search_prev(&mut self) -> bool {
+        self.search_direction = SearchDirection::Backward;
+        self.find_and_select_match(SearchDirection::Backward)
+    }
+
     pub fn set_filter_expr(&mut self, expr: Option<String>) {
         self.filter_expr = expr;
     }
@@ -676,6 +749,54 @@ impl SheetsState {
         self.scroll_row = self.scroll_row.min(self.max_scroll_row);
         self.col_offset = self.col_offset.min(self.max_col_offset);
     }
+
+    fn find_and_select_match(&mut self, direction: SearchDirection) -> bool {
+        let Some(query) = self.search_query.as_deref() else {
+            return false;
+        };
+        if query.is_empty() || self.row_count() == 0 || self.col_count() == 0 {
+            return false;
+        }
+
+        let row_count = self.row_count();
+        let col_count = self.col_count();
+        let total_cells = row_count * col_count;
+        if total_cells == 0 {
+            return false;
+        }
+
+        let start_index = self.selected_row * col_count + self.selected_col;
+        for step in 1..=total_cells {
+            let index = match direction {
+                SearchDirection::Forward => (start_index + step) % total_cells,
+                SearchDirection::Backward => {
+                    (start_index + total_cells - (step % total_cells)) % total_cells
+                }
+            };
+            let row = index / col_count;
+            let col = index % col_count;
+
+            if self
+                .rows
+                .get(row)
+                .and_then(|values| values.get(col))
+                .is_some_and(|value| cell_matches_query(value, query))
+            {
+                self.selected_row = row;
+                self.selected_col = col;
+                self.adjust_scroll_for_selection();
+                return true;
+            }
+        }
+
+        self.add_status_message(StatusMessage {
+            message: format!("Pattern not found: {query}"),
+            timestamp: SystemTime::now(),
+            level: StatusLevel::Warning,
+            duration_secs: 3,
+        });
+        false
+    }
 }
 
 pub fn serialize_state(state: &SheetsState) -> Result<String> {
@@ -696,6 +817,8 @@ pub fn serialize_state(state: &SheetsState) -> Result<String> {
         sort_direction: state.sort_direction.clone(),
         filter_expr: state.filter_expr.clone(),
         search_query: state.search_query.clone(),
+        search_active: state.search_active,
+        search_direction: state.search_direction,
         file_path: state.file_path.clone(),
         last_error: state.last_error.clone(),
         show_row_numbers: state.show_row_numbers,
@@ -727,6 +850,8 @@ pub fn deserialize_state(json: &str) -> Result<SheetsState> {
     state.sort_direction = snapshot.sort_direction;
     state.filter_expr = snapshot.filter_expr;
     state.search_query = snapshot.search_query;
+    state.search_active = snapshot.search_active;
+    state.search_direction = snapshot.search_direction;
     state.file_path = snapshot.file_path;
     state.last_error = snapshot.last_error;
     state.show_row_numbers = snapshot.show_row_numbers;
@@ -760,4 +885,9 @@ fn infer_data_type(value: &str) -> DataType {
         return DataType::Number;
     }
     DataType::String
+}
+
+pub fn cell_matches_query(value: &str, query: &str) -> bool {
+    let trimmed_query = query.trim();
+    !trimmed_query.is_empty() && value.to_lowercase().contains(&trimmed_query.to_lowercase())
 }

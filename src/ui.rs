@@ -2,7 +2,7 @@
 
 use crate::config::ThemeConfig;
 use crate::layout::{fit_cell, ColumnLayout, LayoutEngine};
-use crate::state::{DataType, SheetsState, StatusLevel};
+use crate::state::{cell_matches_query, DataType, SearchDirection, SheetsState, StatusLevel};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -169,7 +169,7 @@ impl UiRenderer {
         );
         let reset = "\x1b[0m";
         let mut footer = format!(
-            "{}Keys: Arrows, h/j/k/l, PgUp/PgDn, Home/End, q/Ctrl-C{}",
+            "{}Keys: Arrows, h/j/k/l, / ? n N, PgUp/PgDn, Home/End, q/Ctrl-C{}",
             sep_style, reset
         );
         footer.push_str(&format!(
@@ -177,6 +177,15 @@ impl UiRenderer {
             state.selected_row() + 1,
             state.selected_col() + 1
         ));
+        if let Ok(Some(query)) = state.get_search_query() {
+            let prefix = match state.search_direction() {
+                SearchDirection::Forward => '/',
+                SearchDirection::Backward => '?',
+            };
+            if state.is_search_active() || !query.is_empty() {
+                footer.push_str(&format!(" | {prefix}{query}"));
+            }
+        }
 
         if let Ok(messages) = state.get_status_messages() {
             if let Some(msg) = messages.iter().next_back() {
@@ -216,6 +225,11 @@ impl UiRenderer {
             let fitted = fit_cell(value, width);
             let is_selected_col = col == state.selected_col();
             let is_selected_cell = row_index == Some(state.selected_row()) && is_selected_col;
+            let matches_search = state
+                .get_search_query()
+                .ok()
+                .flatten()
+                .is_some_and(|query| cell_matches_query(value, &query));
 
             let cell_value = if is_header {
                 if is_selected_col {
@@ -233,6 +247,11 @@ impl UiRenderer {
                 format!(
                     "\x1b[48;5;{}m\x1b[38;5;{}m{}\x1b[0m",
                     theme.selected_background, theme.selected_text, fitted
+                )
+            } else if matches_search {
+                format!(
+                    "\x1b[48;5;{}m\x1b[38;5;{}m{}\x1b[0m",
+                    theme.column_header_background, theme.column_header_text, fitted
                 )
             } else {
                 let color_code = match state.get_data_type(col).unwrap_or(DataType::String) {

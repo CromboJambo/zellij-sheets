@@ -1,8 +1,18 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use zellij_sheets::{fit_cell, ColumnLayout, LayoutEngine, SheetsConfig, SheetsState};
+use zellij_sheets::{
+    cell_matches_query, fit_cell, ColumnLayout, LayoutEngine, SearchDirection, SheetsConfig,
+    SheetsState,
+};
 use zellij_tile::prelude::*;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum InputMode {
+    #[default]
+    Normal,
+    Search,
+}
 
 #[derive(Default)]
 pub struct PluginState {
@@ -10,6 +20,7 @@ pub struct PluginState {
     input_path: Option<PathBuf>,
     status: Option<String>,
     pending_key: Option<BareKey>,
+    input_mode: InputMode,
 }
 
 impl PluginState {
@@ -37,6 +48,7 @@ impl PluginState {
             Ok(()) => {
                 self.status = None;
                 self.pending_key = None;
+                self.input_mode = InputMode::Normal;
             }
             Err(error) => {
                 self.status = Some(format!(
@@ -49,6 +61,10 @@ impl PluginState {
     }
 
     fn handle_key(&mut self, key: KeyWithModifier) -> bool {
+        if self.input_mode == InputMode::Search {
+            return self.handle_search_key(key);
+        }
+
         if self.handle_pending_key(&key) {
             return true;
         }
@@ -104,12 +120,28 @@ impl PluginState {
                 close_self();
                 false
             }
+            BareKey::Char('/') if key.has_no_modifiers() => {
+                self.pending_key = None;
+                self.input_mode = InputMode::Search;
+                self.sheets.begin_search(SearchDirection::Forward);
+                true
+            }
+            BareKey::Char('?') if key.has_no_modifiers() => {
+                self.pending_key = None;
+                self.input_mode = InputMode::Search;
+                self.sheets.begin_search(SearchDirection::Backward);
+                true
+            }
             BareKey::Char(character) if character == 'h' && key.has_no_modifiers() => {
                 self.sheets.select_left();
                 true
             }
             BareKey::Char(character) if character == 'j' && key.has_no_modifiers() => {
                 self.sheets.select_down();
+                true
+            }
+            BareKey::Char(character) if character == 'n' && key.has_no_modifiers() => {
+                self.sheets.search_next();
                 true
             }
             BareKey::Char(character) if character == 'g' && key.has_no_modifiers() => {
@@ -129,6 +161,13 @@ impl PluginState {
             }
             BareKey::Char(character) if character == 'l' && key.has_no_modifiers() => {
                 self.sheets.select_right();
+                true
+            }
+            BareKey::Char(character)
+                if character.eq_ignore_ascii_case(&'n')
+                    && key.has_only_modifiers(&[KeyModifier::Shift]) =>
+            {
+                self.sheets.search_prev();
                 true
             }
             BareKey::Char(character)
@@ -174,6 +213,32 @@ impl PluginState {
             {
                 close_self();
                 false
+            }
+            _ => false,
+        }
+    }
+
+    fn handle_search_key(&mut self, key: KeyWithModifier) -> bool {
+        match key.bare_key {
+            BareKey::Esc => {
+                self.sheets.search_cancel();
+                self.input_mode = InputMode::Normal;
+                true
+            }
+            BareKey::Enter => {
+                self.sheets.search_commit();
+                self.input_mode = InputMode::Normal;
+                true
+            }
+            BareKey::Backspace => {
+                self.sheets.search_backspace();
+                true
+            }
+            BareKey::Char(character)
+                if key.has_no_modifiers() || key.has_only_modifiers(&[KeyModifier::Shift]) =>
+            {
+                self.sheets.search_append(character);
+                true
             }
             _ => false,
         }
@@ -290,7 +355,21 @@ impl ZellijPlugin for PluginState {
         }
 
         println!("{}", "-".repeat(cols));
-        println!("Keys: Arrows hjkl gg/G H/M/L 0/$ Ctrl-U/D q/Ctrl-C");
+        if self.input_mode == InputMode::Search {
+            let prefix = match self.sheets.search_direction() {
+                SearchDirection::Forward => '/',
+                SearchDirection::Backward => '?',
+            };
+            let query = self
+                .sheets
+                .get_search_query()
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            println!("Search: {prefix}{query}  Enter=commit Esc=cancel Backspace=delete");
+        } else {
+            println!("Keys: Arrows hjkl gg/G H/M/L 0/$ / ? n N Ctrl-U/D q/Ctrl-C");
+        }
     }
 }
 
@@ -315,6 +394,11 @@ fn build_row(
         .map(|(col, value)| {
             let width = layouts.get(col).map(|l| l.resolved_width).unwrap_or(8);
             let fitted = fit_cell(value, width);
+            let matches_search = sheets
+                .get_search_query()
+                .ok()
+                .flatten()
+                .is_some_and(|query| cell_matches_query(value, &query));
 
             if col == sheets.selected_col()
                 && (is_header || row_index == Some(sheets.selected_row()))
@@ -322,6 +406,9 @@ fn build_row(
             {
                 let inner = fit_cell(value, width.saturating_sub(2));
                 format!("[{inner}]")
+            } else if !is_header && matches_search && width >= 2 {
+                let inner = fit_cell(value, width.saturating_sub(2));
+                format!("{{{inner}}}")
             } else {
                 fitted
             }
