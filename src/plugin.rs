@@ -9,6 +9,7 @@ pub struct PluginState {
     sheets: SheetsState,
     input_path: Option<PathBuf>,
     status: Option<String>,
+    pending_key: Option<BareKey>,
 }
 
 impl PluginState {
@@ -35,6 +36,7 @@ impl PluginState {
         match self.sheets.load_file(input_path.clone()) {
             Ok(()) => {
                 self.status = None;
+                self.pending_key = None;
             }
             Err(error) => {
                 self.status = Some(format!(
@@ -47,6 +49,10 @@ impl PluginState {
     }
 
     fn handle_key(&mut self, key: KeyWithModifier) -> bool {
+        if self.handle_pending_key(&key) {
+            return true;
+        }
+
         match key.bare_key {
             BareKey::Down => {
                 self.sheets.select_down();
@@ -56,12 +62,34 @@ impl PluginState {
                 self.sheets.select_up();
                 true
             }
+            BareKey::Left => {
+                self.sheets.select_left();
+                true
+            }
+            BareKey::Right => {
+                self.sheets.select_right();
+                true
+            }
             BareKey::PageDown => {
                 self.sheets.page_down();
                 true
             }
             BareKey::PageUp => {
                 self.sheets.page_up();
+                true
+            }
+            BareKey::Char(character)
+                if character.eq_ignore_ascii_case(&'u')
+                    && key.has_only_modifiers(&[KeyModifier::Ctrl]) =>
+            {
+                self.sheets.half_page_up();
+                true
+            }
+            BareKey::Char(character)
+                if character.eq_ignore_ascii_case(&'d')
+                    && key.has_only_modifiers(&[KeyModifier::Ctrl]) =>
+            {
+                self.sheets.half_page_down();
                 true
             }
             BareKey::Home => {
@@ -76,11 +104,91 @@ impl PluginState {
                 close_self();
                 false
             }
-            BareKey::Char('c') if key.has_only_modifiers(&[KeyModifier::Ctrl]) => {
+            BareKey::Char(character) if character == 'h' && key.has_no_modifiers() => {
+                self.sheets.select_left();
+                true
+            }
+            BareKey::Char(character) if character == 'j' && key.has_no_modifiers() => {
+                self.sheets.select_down();
+                true
+            }
+            BareKey::Char(character) if character == 'g' && key.has_no_modifiers() => {
+                self.pending_key = Some(BareKey::Char('g'));
+                true
+            }
+            BareKey::Char(character)
+                if character.eq_ignore_ascii_case(&'g')
+                    && key.has_only_modifiers(&[KeyModifier::Shift]) =>
+            {
+                self.sheets.go_to_bottom();
+                true
+            }
+            BareKey::Char(character) if character == 'k' && key.has_no_modifiers() => {
+                self.sheets.select_up();
+                true
+            }
+            BareKey::Char(character) if character == 'l' && key.has_no_modifiers() => {
+                self.sheets.select_right();
+                true
+            }
+            BareKey::Char(character)
+                if character.eq_ignore_ascii_case(&'h')
+                    && key.has_only_modifiers(&[KeyModifier::Shift]) =>
+            {
+                self.sheets.go_to_top_visible();
+                true
+            }
+            BareKey::Char(character)
+                if character.eq_ignore_ascii_case(&'m')
+                    && key.has_only_modifiers(&[KeyModifier::Shift]) =>
+            {
+                self.sheets.go_to_middle_visible();
+                true
+            }
+            BareKey::Char(character)
+                if character.eq_ignore_ascii_case(&'l')
+                    && key.has_only_modifiers(&[KeyModifier::Shift]) =>
+            {
+                self.sheets.go_to_bottom_visible();
+                true
+            }
+            BareKey::Char('0') if key.has_no_modifiers() => {
+                self.sheets.go_to_first_col();
+                true
+            }
+            BareKey::Char('$') if key.has_no_modifiers() => {
+                self.sheets.go_to_last_col();
+                true
+            }
+            BareKey::Char('4') if key.has_only_modifiers(&[KeyModifier::Shift]) => {
+                self.sheets.go_to_last_col();
+                true
+            }
+            BareKey::Esc => {
+                self.pending_key = None;
+                true
+            }
+            BareKey::Char(character)
+                if character.eq_ignore_ascii_case(&'c')
+                    && key.has_only_modifiers(&[KeyModifier::Ctrl]) =>
+            {
                 close_self();
                 false
             }
             _ => false,
+        }
+    }
+
+    fn handle_pending_key(&mut self, key: &KeyWithModifier) -> bool {
+        match self.pending_key.take() {
+            Some(BareKey::Char('g'))
+                if matches!(key.bare_key, BareKey::Char('g')) && key.has_no_modifiers() =>
+            {
+                self.sheets.go_to_top();
+                true
+            }
+            Some(_) => false,
+            None => false,
         }
     }
 }
@@ -142,16 +250,22 @@ impl ZellijPlugin for PluginState {
 
         let engine = LayoutEngine::new();
         let layouts = engine.resolve(&self.sheets.layout_cache, cols);
+        let visible_cols = self.sheets.visible_cols();
         let file_info = format!(
-            "Zellij Sheets  {}  {} rows",
+            "Zellij Sheets  {}  {} rows  r{} c{}",
             self.sheets.file_name(),
             self.sheets.row_count(),
+            self.sheets.selected_row() + 1,
+            self.sheets.selected_col() + 1,
         );
         println!("{}", file_info);
         println!("{}", "-".repeat(cols));
 
         if let Some(headers) = self.sheets.headers() {
-            println!("{}", build_row(headers, &layouts, true, false));
+            println!(
+                "{}",
+                build_row(headers, &self.sheets, &layouts, true, None, visible_cols,)
+            );
         }
 
         if self.sheets.row_count() == 0 {
@@ -161,13 +275,22 @@ impl ZellijPlugin for PluginState {
         let (start, end) = self.sheets.row_range();
         for row_idx in start..end {
             if let Some(values) = self.sheets.get_row(row_idx) {
-                let is_selected = row_idx == self.sheets.selected_row();
-                println!("{}", build_row(&values, &layouts, false, is_selected));
+                println!(
+                    "{}",
+                    build_row(
+                        &values,
+                        &self.sheets,
+                        &layouts,
+                        false,
+                        Some(row_idx),
+                        visible_cols,
+                    )
+                );
             }
         }
 
         println!("{}", "-".repeat(cols));
-        println!("Keys: Up/Down  PgUp/PgDn  Home/End  q/Ctrl-C");
+        println!("Keys: Arrows hjkl gg/G H/M/L 0/$ Ctrl-U/D q/Ctrl-C");
     }
 }
 
@@ -178,23 +301,37 @@ impl ZellijPlugin for PluginState {
 /// - plain data rows: prefixed with a space
 fn build_row(
     values: &[String],
+    sheets: &SheetsState,
     layouts: &[ColumnLayout],
     is_header: bool,
-    is_selected: bool,
+    row_index: Option<usize>,
+    visible_cols: usize,
 ) -> String {
     let cells = values
         .iter()
         .enumerate()
+        .skip(sheets.col_offset())
+        .take(visible_cols)
         .map(|(col, value)| {
             let width = layouts.get(col).map(|l| l.resolved_width).unwrap_or(8);
-            fit_cell(value, width)
+            let fitted = fit_cell(value, width);
+
+            if col == sheets.selected_col()
+                && (is_header || row_index == Some(sheets.selected_row()))
+                && width >= 2
+            {
+                let inner = fit_cell(value, width.saturating_sub(2));
+                format!("[{inner}]")
+            } else {
+                fitted
+            }
         })
         .collect::<Vec<_>>()
         .join(" | ");
 
     if is_header {
         cells
-    } else if is_selected {
+    } else if row_index == Some(sheets.selected_row()) {
         format!(">{cells}")
     } else {
         format!(" {cells}")

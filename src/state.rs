@@ -90,7 +90,10 @@ struct SheetsStateSnapshot {
     rows: Vec<Vec<String>>,
     scroll_row: usize,
     selected_row: usize,
+    selected_col: usize,
+    col_offset: usize,
     max_scroll_row: usize,
+    max_col_offset: usize,
     file_name: String,
     width: usize,
     height: usize,
@@ -113,7 +116,10 @@ pub struct SheetsState {
     rows: Vec<Vec<String>>,
     scroll_row: usize,
     selected_row: usize,
+    selected_col: usize,
+    col_offset: usize,
     max_scroll_row: usize,
+    max_col_offset: usize,
     file_name: String,
     width: usize,
     height: usize,
@@ -147,7 +153,10 @@ impl SheetsState {
             rows: Vec::new(),
             scroll_row: 0,
             selected_row: 0,
+            selected_col: 0,
+            col_offset: 0,
             max_scroll_row: 0,
+            max_col_offset: 0,
             file_name: String::new(),
             width: 80,
             height: 24,
@@ -173,7 +182,9 @@ impl SheetsState {
         self.headers = data.headers;
         self.rows = data.rows;
         self.selected_row = 0;
+        self.selected_col = 0;
         self.scroll_row = 0;
+        self.col_offset = 0;
         self.layout_cache = LayoutCache::prepare(&self.headers, &self.rows);
         self.sync_bounds();
         Ok(())
@@ -216,49 +227,119 @@ impl SheetsState {
         }
     }
 
-    pub fn scroll_left(&mut self) {}
+    pub fn scroll_left(&mut self) {
+        if self.col_offset > 0 {
+            self.col_offset -= 1;
+            self.selected_col = self.selected_col.max(self.col_offset);
+            self.selected_col = self.selected_col.min(self.last_visible_col());
+        }
+    }
 
-    pub fn scroll_right(&mut self) {}
+    pub fn scroll_right(&mut self) {
+        if self.col_offset < self.max_col_offset {
+            self.col_offset += 1;
+            self.selected_col = self.selected_col.max(self.col_offset);
+            self.selected_col = self.selected_col.min(self.last_visible_col());
+        }
+    }
 
     pub fn page_up(&mut self) {
         let page_size = self.config.behavior.page_size.max(1);
         self.scroll_row = self.scroll_row.saturating_sub(page_size);
         self.selected_row = self.selected_row.saturating_sub(page_size);
+        self.adjust_scroll_for_selection();
     }
 
     pub fn page_down(&mut self) {
         let page_size = self.config.behavior.page_size.max(1);
         self.scroll_row = (self.scroll_row + page_size).min(self.max_scroll_row);
         self.selected_row = (self.selected_row + page_size).min(self.last_row_index());
+        self.adjust_scroll_for_selection();
+    }
+
+    pub fn half_page_up(&mut self) {
+        let page_size = (self.visible_rows() / 2).max(1);
+        self.scroll_row = self.scroll_row.saturating_sub(page_size);
+        self.selected_row = self.selected_row.saturating_sub(page_size);
+        self.adjust_scroll_for_selection();
+    }
+
+    pub fn half_page_down(&mut self) {
+        let page_size = (self.visible_rows() / 2).max(1);
+        self.scroll_row = (self.scroll_row + page_size).min(self.max_scroll_row);
+        self.selected_row = (self.selected_row + page_size).min(self.last_row_index());
+        self.adjust_scroll_for_selection();
     }
 
     pub fn go_to_top(&mut self) {
         self.scroll_row = 0;
         self.selected_row = 0;
+        self.adjust_scroll_for_selection();
     }
 
     pub fn go_to_bottom(&mut self) {
         self.scroll_row = self.max_scroll_row;
         self.selected_row = self.last_row_index();
+        self.adjust_scroll_for_selection();
+    }
+
+    pub fn go_to_first_col(&mut self) {
+        self.selected_col = 0;
+        self.adjust_scroll_for_selection();
+    }
+
+    pub fn go_to_last_col(&mut self) {
+        self.selected_col = self.last_col_index();
+        self.adjust_scroll_for_selection();
+    }
+
+    pub fn go_to_top_visible(&mut self) {
+        self.selected_row = self.scroll_row.min(self.last_row_index());
+        self.adjust_scroll_for_selection();
+    }
+
+    pub fn go_to_middle_visible(&mut self) {
+        let (start, end) = self.row_range();
+        let visible_len = end.saturating_sub(start);
+        if visible_len == 0 {
+            self.selected_row = 0;
+        } else {
+            self.selected_row = start + ((visible_len - 1) / 2);
+        }
+        self.adjust_scroll_for_selection();
+    }
+
+    pub fn go_to_bottom_visible(&mut self) {
+        let (_, end) = self.row_range();
+        self.selected_row = end.saturating_sub(1);
+        self.adjust_scroll_for_selection();
     }
 
     pub fn select_up(&mut self) {
         if self.selected_row > 0 {
             self.selected_row -= 1;
-            if self.selected_row < self.scroll_row {
-                self.scroll_row = self.selected_row;
-            }
+            self.adjust_scroll_for_selection();
         }
     }
 
     pub fn select_down(&mut self) {
         if self.selected_row < self.last_row_index() {
             self.selected_row += 1;
-            if self.selected_row >= self.scroll_row + self.visible_rows() {
-                self.scroll_row = self
-                    .selected_row
-                    .saturating_sub(self.visible_rows().saturating_sub(1));
-            }
+            self.adjust_scroll_for_selection();
+        }
+    }
+
+    pub fn select_left(&mut self) {
+        if self.selected_col > 0 {
+            self.selected_col -= 1;
+            self.adjust_scroll_for_selection();
+        }
+    }
+
+    pub fn select_right(&mut self) {
+        if self.selected_col < self.last_col_index() {
+            self.selected_col += 1;
+            self.adjust_scroll_for_selection();
         }
     }
 
@@ -277,6 +358,18 @@ impl SheetsState {
 
     pub fn selected_row(&self) -> usize {
         self.selected_row
+    }
+
+    pub fn selected_col(&self) -> usize {
+        self.selected_col
+    }
+
+    pub fn col_offset(&self) -> usize {
+        self.col_offset
+    }
+
+    pub fn max_col_offset(&self) -> usize {
+        self.max_col_offset
     }
 
     pub fn row_count(&self) -> usize {
@@ -301,6 +394,32 @@ impl SheetsState {
 
     pub fn visible_rows(&self) -> usize {
         self.height.saturating_sub(5).max(1)
+    }
+
+    pub fn visible_cols(&self) -> usize {
+        self.visible_cols_from_offset(self.col_offset)
+    }
+
+    pub fn visible_cols_from_offset(&self, offset: usize) -> usize {
+        if self.col_count() == 0 || offset >= self.col_count() {
+            return 0;
+        }
+
+        let layouts = crate::layout::LayoutEngine::new().resolve(&self.layout_cache, self.width);
+        let mut used_width = 0;
+        let mut visible_cols = 0;
+
+        for layout in layouts.iter().skip(offset) {
+            let separator_width = usize::from(visible_cols > 0) * 3;
+            let next_width = used_width + separator_width + layout.resolved_width;
+            if next_width > self.width {
+                break;
+            }
+            used_width = next_width;
+            visible_cols += 1;
+        }
+
+        visible_cols.max(1)
     }
 
     pub fn row_range(&self) -> (usize, usize) {
@@ -426,6 +545,10 @@ impl SheetsState {
         Ok(self.selected_row)
     }
 
+    pub fn get_selected_col(&self) -> Result<usize> {
+        Ok(self.selected_col)
+    }
+
     pub fn get_row_range(&self) -> Result<(usize, usize)> {
         Ok(self.row_range())
     }
@@ -507,12 +630,51 @@ impl SheetsState {
 
     fn sync_bounds(&mut self) {
         self.max_scroll_row = self.row_count().saturating_sub(self.visible_rows());
+        self.max_col_offset = self
+            .col_count()
+            .saturating_sub(self.visible_cols_from_offset(0));
         self.scroll_row = self.scroll_row.min(self.max_scroll_row);
+        self.col_offset = self.col_offset.min(self.max_col_offset);
         self.selected_row = self.selected_row.min(self.last_row_index());
+        self.selected_col = self.selected_col.min(self.last_col_index());
+        self.adjust_scroll_for_selection();
     }
 
     fn last_row_index(&self) -> usize {
         self.row_count().saturating_sub(1)
+    }
+
+    fn last_col_index(&self) -> usize {
+        self.col_count().saturating_sub(1)
+    }
+
+    fn last_visible_col(&self) -> usize {
+        self.col_offset
+            .saturating_add(self.visible_cols().saturating_sub(1))
+            .min(self.last_col_index())
+    }
+
+    fn adjust_scroll_for_selection(&mut self) {
+        if self.selected_row < self.scroll_row {
+            self.scroll_row = self.selected_row;
+        } else if self.selected_row >= self.scroll_row + self.visible_rows() {
+            self.scroll_row = self
+                .selected_row
+                .saturating_sub(self.visible_rows().saturating_sub(1));
+        }
+
+        if self.selected_col < self.col_offset {
+            self.col_offset = self.selected_col;
+        } else {
+            while self.selected_col > self.last_visible_col()
+                && self.col_offset < self.max_col_offset
+            {
+                self.col_offset += 1;
+            }
+        }
+
+        self.scroll_row = self.scroll_row.min(self.max_scroll_row);
+        self.col_offset = self.col_offset.min(self.max_col_offset);
     }
 }
 
@@ -522,7 +684,10 @@ pub fn serialize_state(state: &SheetsState) -> Result<String> {
         rows: state.rows.clone(),
         scroll_row: state.scroll_row,
         selected_row: state.selected_row,
+        selected_col: state.selected_col,
+        col_offset: state.col_offset,
         max_scroll_row: state.max_scroll_row,
+        max_col_offset: state.max_col_offset,
         file_name: state.file_name.clone(),
         width: state.width,
         height: state.height,
@@ -550,7 +715,10 @@ pub fn deserialize_state(json: &str) -> Result<SheetsState> {
     state.rows = snapshot.rows;
     state.scroll_row = snapshot.scroll_row;
     state.selected_row = snapshot.selected_row;
+    state.selected_col = snapshot.selected_col;
+    state.col_offset = snapshot.col_offset;
     state.max_scroll_row = snapshot.max_scroll_row;
+    state.max_col_offset = snapshot.max_col_offset;
     state.file_name = snapshot.file_name;
     state.width = snapshot.width;
     state.height = snapshot.height;

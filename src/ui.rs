@@ -142,16 +142,18 @@ impl UiRenderer {
         let width = state.get_width().unwrap_or(80);
         let layouts = self.layout_engine.resolve(&state.layout_cache, width);
         let (start, end) = state.row_range();
+        let visible_cols = state.visible_cols();
 
         if let Some(headers) = state.headers() {
-            lines.push(self.render_row(headers, state, &layouts, true)?);
+            lines.push(self.render_row(headers, state, &layouts, true, None, visible_cols)?);
         }
 
         for row in start..end {
             if let Some(values) = state.get_row(row) {
                 let is_selected = row == state.selected_row();
                 let prefix = if is_selected { ">" } else { " " };
-                let row_line = self.render_row(&values, state, &layouts, false)?;
+                let row_line =
+                    self.render_row(&values, state, &layouts, false, Some(row), visible_cols)?;
                 lines.push(format!("{}{}", prefix, row_line));
             }
         }
@@ -167,9 +169,14 @@ impl UiRenderer {
         );
         let reset = "\x1b[0m";
         let mut footer = format!(
-            "{}Keys: Up/Down, PgUp/PgDn, Home/End, q/Ctrl-C{}",
+            "{}Keys: Arrows, h/j/k/l, PgUp/PgDn, Home/End, q/Ctrl-C{}",
             sep_style, reset
         );
+        footer.push_str(&format!(
+            " | row {} col {}",
+            state.selected_row() + 1,
+            state.selected_col() + 1
+        ));
 
         if let Ok(messages) = state.get_status_messages() {
             if let Some(msg) = messages.iter().next_back() {
@@ -192,18 +199,40 @@ impl UiRenderer {
         state: &SheetsState,
         layouts: &[ColumnLayout],
         is_header: bool,
+        row_index: Option<usize>,
+        visible_cols: usize,
     ) -> Result<String> {
         let mut cells = Vec::new();
         let theme = self.get_theme();
+        let col_offset = state.col_offset();
 
-        for (col, value) in values.iter().enumerate() {
+        for (col, value) in values
+            .iter()
+            .enumerate()
+            .skip(col_offset)
+            .take(visible_cols)
+        {
             let width = layouts.get(col).map(|l| l.resolved_width).unwrap_or(8);
             let fitted = fit_cell(value, width);
+            let is_selected_col = col == state.selected_col();
+            let is_selected_cell = row_index == Some(state.selected_row()) && is_selected_col;
 
             let cell_value = if is_header {
+                if is_selected_col {
+                    format!(
+                        "\x1b[1;48;5;{}m\x1b[38;5;{}m{}\x1b[0m",
+                        theme.selected_background, theme.selected_text, fitted
+                    )
+                } else {
+                    format!(
+                        "\x1b[1;48;5;{}m\x1b[38;5;{}m{}\x1b[0m",
+                        theme.header_background, theme.header_text, fitted
+                    )
+                }
+            } else if is_selected_cell {
                 format!(
-                    "\x1b[1;48;5;{}m\x1b[38;5;{}m{}\x1b[0m",
-                    theme.header_background, theme.header_text, fitted
+                    "\x1b[48;5;{}m\x1b[38;5;{}m{}\x1b[0m",
+                    theme.selected_background, theme.selected_text, fitted
                 )
             } else {
                 let color_code = match state.get_data_type(col).unwrap_or(DataType::String) {

@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use zellij_sheets::config::SheetsConfig;
+use zellij_sheets::data_loader::{DataSource, LoadedData};
 use zellij_sheets::state::{
     deserialize_state, serialize_state, DataType, SheetsState, SortDirection, StatusLevel,
     StatusMessage, ViewMode,
@@ -9,6 +10,25 @@ use zellij_sheets::state::{
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sample_loaded_data(rows: usize, cols: usize) -> LoadedData {
+        let headers = (0..cols)
+            .map(|col| format!("col_{col}"))
+            .collect::<Vec<_>>();
+        let rows = (0..rows)
+            .map(|row| {
+                (0..cols)
+                    .map(|col| format!("r{row}c{col}"))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+
+        LoadedData {
+            headers,
+            rows,
+            source: DataSource::Csv,
+        }
+    }
 
     #[test]
     fn test_state_creation() {
@@ -110,6 +130,67 @@ mod tests {
     }
 
     #[test]
+    fn test_state_horizontal_navigation_tracks_column_cursor() {
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.resize(20, 12);
+        state.init(sample_loaded_data(3, 6)).unwrap();
+
+        assert_eq!(state.visible_cols(), 3);
+        assert_eq!(state.max_col_offset(), 3);
+
+        state.select_right();
+        state.select_right();
+        assert_eq!(state.selected_col(), 2);
+        assert_eq!(state.col_offset(), 0);
+
+        state.select_right();
+        assert_eq!(state.selected_col(), 3);
+        assert_eq!(state.col_offset(), 1);
+
+        state.select_right();
+        state.select_right();
+        assert_eq!(state.selected_col(), 5);
+        assert_eq!(state.col_offset(), 3);
+
+        state.select_left();
+        assert_eq!(state.selected_col(), 4);
+        assert_eq!(state.col_offset(), 3);
+
+        state.select_left();
+        state.select_left();
+        state.select_left();
+        assert_eq!(state.selected_col(), 1);
+        assert_eq!(state.col_offset(), 1);
+    }
+
+    #[test]
+    fn test_state_horizontal_scroll_clamps_selection_to_viewport() {
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.resize(20, 12);
+        state.init(sample_loaded_data(2, 6)).unwrap();
+
+        state.select_right();
+        state.select_right();
+        state.select_right();
+        assert_eq!(state.selected_col(), 3);
+        assert_eq!(state.col_offset(), 1);
+
+        state.scroll_right();
+        assert_eq!(state.col_offset(), 2);
+        assert_eq!(state.selected_col(), 3);
+
+        state.scroll_right();
+        assert_eq!(state.col_offset(), 3);
+        assert_eq!(state.selected_col(), 3);
+
+        state.scroll_left();
+        assert_eq!(state.col_offset(), 2);
+        assert_eq!(state.selected_col(), 3);
+    }
+
+    #[test]
     fn test_scroll() {
         let config = Arc::new(SheetsConfig::default());
         let mut state = SheetsState::new(config);
@@ -136,6 +217,26 @@ mod tests {
     }
 
     #[test]
+    fn test_state_half_page_navigation() {
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.resize(40, 12);
+        state.init(sample_loaded_data(20, 4)).unwrap();
+
+        state.half_page_down();
+        assert_eq!(state.selected_row(), 3);
+        assert_eq!(state.scroll_row(), 3);
+
+        state.half_page_down();
+        assert_eq!(state.selected_row(), 6);
+        assert_eq!(state.scroll_row(), 6);
+
+        state.half_page_up();
+        assert_eq!(state.selected_row(), 3);
+        assert_eq!(state.scroll_row(), 3);
+    }
+
+    #[test]
     fn test_go_to_top_bottom() {
         let config = Arc::new(SheetsConfig::default());
         let mut state = SheetsState::new(config);
@@ -147,6 +248,49 @@ mod tests {
 
         state.go_to_top();
         assert_eq!(state.selected_row(), 0);
+        assert_eq!(state.scroll_row(), 0);
+    }
+
+    #[test]
+    fn test_state_go_to_first_last_col() {
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.resize(20, 12);
+        state.init(sample_loaded_data(4, 6)).unwrap();
+
+        state.go_to_last_col();
+        assert_eq!(state.selected_col(), 5);
+        assert_eq!(state.col_offset(), 3);
+
+        state.go_to_first_col();
+        assert_eq!(state.selected_col(), 0);
+        assert_eq!(state.col_offset(), 0);
+    }
+
+    #[test]
+    fn test_state_go_to_visible_row_positions() {
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.resize(40, 12);
+        state.init(sample_loaded_data(20, 4)).unwrap();
+        state.select_down();
+        state.select_down();
+        state.select_down();
+        state.select_down();
+        state.select_down();
+
+        assert_eq!(state.scroll_row(), 0);
+
+        state.go_to_top_visible();
+        assert_eq!(state.selected_row(), 0);
+        assert_eq!(state.scroll_row(), 0);
+
+        state.go_to_middle_visible();
+        assert_eq!(state.selected_row(), 3);
+        assert_eq!(state.scroll_row(), 0);
+
+        state.go_to_bottom_visible();
+        assert_eq!(state.selected_row(), 6);
         assert_eq!(state.scroll_row(), 0);
     }
 
@@ -298,6 +442,10 @@ mod tests {
 
         state.set_view_mode(ViewMode::List);
         state.set_search_query(Some("test".to_string()));
+        state.init(sample_loaded_data(2, 5)).unwrap();
+        state.select_right();
+        state.select_right();
+        state.select_right();
 
         let serialized = serialize_state(&state).unwrap();
         assert!(!serialized.is_empty());
@@ -308,6 +456,8 @@ mod tests {
             deserialized.get_search_query().unwrap(),
             Some("test".to_string())
         );
+        assert_eq!(deserialized.selected_col(), 3);
+        assert_eq!(deserialized.col_offset(), 0);
     }
 
     #[test]
@@ -315,8 +465,13 @@ mod tests {
         let config = Arc::new(SheetsConfig::default());
         let mut state = SheetsState::new(config);
 
+        state.resize(20, 12);
+        state.init(sample_loaded_data(3, 6)).unwrap();
         state.set_view_mode(ViewMode::Grid);
         state.set_search_query(Some("search".to_string()));
+        state.select_right();
+        state.select_right();
+        state.select_right();
 
         let serialized = serialize_state(&state).unwrap();
         assert!(!serialized.is_empty());
@@ -327,6 +482,8 @@ mod tests {
             deserialized.get_search_query().unwrap(),
             Some("search".to_string())
         );
+        assert_eq!(deserialized.selected_col(), 3);
+        assert_eq!(deserialized.col_offset(), 1);
     }
 
     #[test]
@@ -358,6 +515,8 @@ mod tests {
         assert!(state.get_show_column_numbers().unwrap());
         assert!(state.get_show_grid_lines().unwrap());
         assert!(!state.get_show_data_types().unwrap());
+        assert_eq!(state.selected_col(), 0);
+        assert_eq!(state.col_offset(), 0);
     }
 
     fn infer_data_type(value: &str) -> DataType {
