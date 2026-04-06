@@ -1,29 +1,71 @@
 //! # Zellij Sheets
 //!
-//! A terminal-based spreadsheet viewer powered by Zellij.
-//! This library provides spreadsheet viewing functionality for both Zellij plugins
-//! and native CLI applications.
+//! Terminal-native spreadsheet viewing for Zellij and the command line.
+//!
+//! `zellij-sheets` is the grid and navigation layer for tabular data. It loads
+//! CSV and Excel files, renders them with a Unicode-aware layout engine, and
+//! exposes shared state and rendering logic used by both the Zellij plugin and
+//! the native CLI.
+//!
+//! This crate is intentionally viewer-first. Workflow-level pipeline semantics,
+//! provenance, and transformation orchestration belong in `nustage`, not here.
 //!
 //! ## Features
 //!
-//! - View CSV and Excel files in the terminal
-//! - Configurable themes and display settings
-//! - Search and filter support (planned)
-//! - Sort functionality (planned)
-//! - Parquet preview (planned)
+//! - CSV and Excel (`.xlsx`, `.xls`) loading
+//! - Horizontal scrolling with a real column cursor
+//! - Vim-style navigation primitives
+//! - Search state and matching helpers
+//! - Cell/range/write address parsing for the native CLI
+//! - CSV loading from stdin and CSV write-back helpers
+//! - Serializable spreadsheet state snapshots
+//! - Unicode-aware column measurement and layout
+//!
+//! ## Public Surface
+//!
+//! - [`state`] contains [`SheetsState`], cursor/search behavior, and snapshot support.
+//! - [`layout`] contains the measurement and width-resolution engine.
+//! - [`ui`] contains terminal rendering helpers.
+//! - [`data_loader`] contains CSV/Excel loading helpers.
+//! - [`address`] contains cell/range/write address parsing for the native CLI.
 //!
 //! ## Usage
 //!
-//! For Zellij plugin:
+//! Read a file into shared state:
+//!
+//! ```no_run
+//! use std::path::PathBuf;
+//! use std::sync::Arc;
+//! use zellij_sheets::{SheetsConfig, SheetsState};
+//!
+//! let mut state = SheetsState::new(Arc::new(SheetsConfig::default()));
+//! state.load_file(PathBuf::from("data.csv"))?;
+//! # Ok::<(), zellij_sheets::state::StateError>(())
+//! ```
+//!
+//! Parse a CLI-style cell address:
+//!
+//! ```
+//! use zellij_sheets::{parse_address_command, AddressCommand, CellAddress};
+//!
+//! let command = parse_address_command("B9")?;
+//! assert_eq!(command, AddressCommand::Cell(CellAddress { row: 8, col: 1 }));
+//! # Ok::<(), zellij_sheets::address::AddressError>(())
+//! ```
+//!
+//! Example Zellij plugin config:
 //! ```kdl
 //! plugins {
 //!     zellij-sheets location="file:/path/to/zellij-sheets.wasm"
 //! }
 //! ```
 //!
-//! For native CLI:
+//! Example native CLI usage:
 //! ```bash
-//! zellij-sheets --input /path/to/file.csv
+//! zellij-sheets data.csv
+//! zellij-sheets data.csv B9
+//! zellij-sheets data.csv B1:B3
+//! cat data.csv | zellij-sheets B2
 //! ```
 
 pub mod address;
