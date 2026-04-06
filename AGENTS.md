@@ -5,11 +5,12 @@
 ```
 zellij-sheets/
 ├── src/
+│   ├── address.rs          # Cell/range/write address parsing helpers for the CLI
 │   ├── lib.rs              # Public API surface — re-exports from all modules
-│   ├── main.rs             # Native CLI entry point (file arg, cell addressing, stdin)
+│   ├── main.rs             # Native CLI entry point (file, stdin, address, static render)
 │   ├── plugin.rs           # Zellij plugin entry point (WASM target)
 │   ├── config.rs           # SheetsConfig, ThemeConfig, DisplayConfig, BehaviorConfig
-│   ├── data_loader.rs      # CSV / Excel file loading and parsing
+│   ├── data_loader.rs      # CSV / Excel loading plus CSV reader/writer helpers
 │   ├── layout.rs           # Column layout engine and rendering cache
 │   ├── state.rs            # SheetsState — core spreadsheet state machine
 │   ├── ui.rs               # UiRenderer, Colors, UiError
@@ -33,100 +34,106 @@ All public types are re-exported from `src/lib.rs`. Each module owns one concern
 
 ---
 
-## Planned Features (in priority order)
+## Product Boundary
 
-These are the features being actively developed to close the gap with
+`zellij-sheets` owns spreadsheet-viewer mechanics:
+
+- grid rendering
+- cursor movement and scrolling
+- search and viewport behavior
+- cell/range addressing
+- lightweight CSV/XLSX inspection and CSV write-back
+- native spreadsheet TUI mechanics
+- Zellij plugin UX
+
+`zellij-sheets` does **not** own workflow-level pipeline semantics. If a feature is primarily about:
+
+- named transformation steps
+- provenance / lineage
+- sidecar workflow state
+- execution planning
+- SQL or M-code generation
+- field-oriented orchestration above the grid
+
+it belongs in `nustage`, not here.
+
+Use this rule:
+
+- `zellij-sheets` answers: "How do I inspect and navigate tabular data interactively?"
+- `nustage` answers: "How do I define and understand tabular workflows?"
+
+---
+
+## Current Status
+
+The following gaps with `maaslalani/sheets` are now implemented in this repo:
+
+- Column cursor + horizontal scrolling
+- Vim-style navigation in the plugin/state layer
+- Search in the plugin/state/UI layer
+- Horizontal renderer slicing
+- Cell/range/write addressing from the native CLI
+- stdin / pipe support for CSV input
+
+The next major work is no longer the basic parity layer above. The next major work is making the native binary a real interactive TUI instead of only a static renderer plus address/query commands.
+
+---
+
+## Next Priorities
+
+These are the features that now matter most after closing the first-round gap with
 [maaslalani/sheets](https://github.com/maaslalani/sheets). Each item below
 corresponds to a concrete area of the codebase.
 
-### 1. Column cursor + horizontal scrolling (`state.rs`, `ui.rs`, `plugin.rs`)
+### 1. Native Interactive TUI (`main.rs`, `state.rs`, `ui.rs`)
 
-`SheetsState` needs a `selected_col: usize` and a `col_offset: usize` field
-alongside the existing `selected_row` / `scroll_row`. The layout engine already
-produces a `Vec<ColumnLayout>`; the renderer must slice it starting at
-`col_offset` so wide tables scroll horizontally. The currently-empty
-`scroll_left` / `scroll_right` stubs in `state.rs` must be implemented.
+The native binary should stop being only a static dump plus addressing helper
+and become an actual interactive terminal app. Reuse `SheetsState` and
+`UiRenderer`; do not fork behavior between plugin and CLI.
 
-- `selected_col` — zero-based index of the active column.
-- `col_offset` — first visible column (horizontal scroll position).
-- `max_col_offset` — computed from column count minus visible columns; clamped
-  on resize.
-- `select_left()` / `select_right()` — move `selected_col`, advance
-  `col_offset` when the cursor hits the right edge.
-- The renderer highlights the intersection of `selected_row` × `selected_col`,
-  not just the entire row.
+- Add a real event loop for key handling and redraw.
+- Reuse vim navigation and search semantics from the plugin/state layer.
+- Keep address/query/write behavior available as non-interactive CLI sub-modes.
+- Treat the native TUI as the serious spreadsheet frontend; treat the plugin as
+  the lighter embedded viewer.
 
-### 2. Vim-style navigation (`state.rs`, `plugin.rs`)
+### 2. Native/Plugin Behavior Parity (`main.rs`, `plugin.rs`, `state.rs`)
 
-Minimum viable key set (plugin and CLI):
+Behavior should not silently diverge between the native binary and the plugin.
+If a key, cursor move, or search behavior exists in one interactive target, it
+should usually exist in the other unless the host environment makes that
+impossible.
 
-| Key | Action |
-|---|---|
-| `h` / `l` | `select_left()` / `select_right()` |
-| `j` / `k` | `select_down()` / `select_up()` |
-| `g g` | `go_to_top()` |
-| `G` | `go_to_bottom()` |
-| `ctrl+u` | `half_page_up()` |
-| `ctrl+d` | `half_page_down()` |
-| `0` | `go_to_first_col()` |
-| `$` | `go_to_last_col()` |
-| `H` / `M` / `L` | jump to top / middle / bottom of visible rows |
+- Keep `SheetsState` as the behavior source of truth.
+- Avoid re-implementing navigation rules in per-target code.
+- Prefer thin keybinding layers in `main.rs` and `plugin.rs`.
 
-Multi-key sequences (`gg`, `5G`, `gB9`) require a small pending-key buffer in
-`PluginState`. Store it as `pending_key: Option<BareKey>` and flush it on the
-next keypress or a timeout event.
+### 3. Editing Model (`main.rs`, `plugin.rs`, `state.rs`)
 
-### 3. Search (`state.rs`, `plugin.rs`, `ui.rs`)
+If editing is added, it must be intentional and safe. Navigation cannot
+accidentally mutate data.
 
-The `search_query` field already exists in `SheetsState`. Wire it up:
+- Separate navigation/search modes from edit/write modes.
+- Keep CSV write-back explicit.
+- If undo/redo appears, design it as a state/history concern first, not a UI hack.
 
-- `begin_search(direction: SearchDirection)` — sets an `InputMode::Search`
-  flag and clears the current query.
-- `search_append(ch: char)` / `search_commit()` / `search_cancel()` — driven
-  by keypresses while in search mode.
-- `search_next()` / `search_prev()` — scan rows × cols from the current
-  cursor, wrap around, jump `selected_row` / `selected_col` to the match.
-- The status bar renders the query as `/pattern` while in search mode and
-  highlights matches in the data area.
-- Keys: `/` (forward), `?` (backward), `n` (next), `N` (previous), `Esc`
-  (cancel).
+### 4. Renderer Refinement (`ui.rs`, `layout.rs`)
 
-### 4. Horizontal scroll in the renderer (`ui.rs`)
+The rendering path now works, but it still needs to feel more like a tool and
+less like a debug view.
 
-`build_row` (and the header row) must accept a `col_offset: usize` and only
-render columns `col_offset..col_offset+visible_cols`. The separator between
-the row-number gutter and the first visible column must be preserved. This is
-purely a rendering change — no state changes required beyond feature 1.
+- Improve native TUI presentation without breaking plugin rendering.
+- Preserve Unicode-aware width behavior.
+- Keep status/search/cursor visibility obvious.
 
-### 5. Cell addressing from the CLI (`main.rs`)
+### 5. CLI Ergonomics (`main.rs`, `address.rs`, `data_loader.rs`)
 
-Extend the argument parser to accept an optional positional address after the
-file path:
+The CLI is already useful. Keep it sharp rather than letting it accumulate
+random flags.
 
-```
-zellij-sheets file.csv          # interactive TUI (future) or static dump
-zellij-sheets file.csv B9       # print the value of cell B9 to stdout
-zellij-sheets file.csv B1:B3    # print the range B1:B3, one value per line
-zellij-sheets file.csv B7=10    # write a value (CSV only, round-trips the file)
-```
-
-Column letters map to zero-based indices with `col_letter_to_index` (A=0,
-Z=25, AA=26, …). Row numbers are 1-based in the address but 0-based internally.
-Implement the address parser in a new `src/address.rs` module and re-export it
-from `lib.rs`.
-
-### 6. stdin support (`main.rs`, `data_loader.rs`)
-
-When no file argument is given (or `-` is passed), read CSV from stdin:
-
-```bash
-zellij-sheets <<< "ID,Name,Age\n1,Alice,24"
-cat data.csv | zellij-sheets
-```
-
-Detect via `std::io::stdin().is_terminal()` (requires the `is-terminal` crate
-or `rustix`). If not a terminal, read stdin to a `String` and pass it through
-a new `load_csv_from_reader(r: impl Read)` function in `data_loader.rs`.
+- Keep `file [address]` and stdin semantics stable.
+- Prefer clear errors over clever parsing.
+- Treat help text and examples as part of the product surface.
 
 ---
 
@@ -137,6 +144,7 @@ a new `load_csv_from_reader(r: impl Read)` function in `data_loader.rs`.
 | `cargo check` | Verify the project compiles without producing artifacts |
 | `cargo build` | Build the native CLI binary (debug) |
 | `cargo build --release --target wasm32-wasip1` | Build the Zellij WASM plugin |
+| `cargo run -- --help` | Show native CLI usage and examples |
 | `cargo test --all-features` | Run the full test suite |
 | `cargo fmt` | Format all source files |
 | `cargo clippy -- -D warnings` | Lint — all warnings are treated as errors |
@@ -159,6 +167,7 @@ rustup target add wasm32-wasip1
 - **Trait implementations**: derive `Default` where possible; never implement it twice for the same type.
 - **New modules**: add the module file under `src/`, declare it in `lib.rs` with `pub mod`, and add any public re-exports to the `pub use` block at the bottom of `lib.rs`.
 - **Stub methods**: if a method body is not yet implemented, use `todo!()` with a comment rather than leaving a silent no-op. Silent no-ops hide bugs.
+- **Behavior reuse**: when adding native TUI features, push reusable logic into `state.rs`, `ui.rs`, `layout.rs`, or `lib.rs` rather than duplicating it in `main.rs` and `plugin.rs`.
 
 ---
 
@@ -182,7 +191,8 @@ These rules apply to `SheetsState` and any future state structs:
 - Every new public function should have at least one test for the expected case and one for a failure or edge case.
 - **Navigation tests**: for every new cursor/scroll method, add a test that starts from a known state, applies the method, and asserts the exact resulting `selected_row`, `selected_col`, `scroll_row`, and `col_offset`. Test boundary conditions (first row, last row, first col, last col, empty table).
 - **Search tests**: test that `search_next()` wraps around, that `search_prev()` moves backward, and that an empty query is a no-op.
-- **Address parser tests** (once `address.rs` exists): cover single cells (`B9`), ranges (`B1:B3`), write syntax (`B7=10`), edge cases (column `AA`, row 1, out-of-bounds).
+- **Address parser tests**: cover single cells (`B9`), ranges (`B1:B3`), write syntax (`B7=10`), edge cases (column `AA`, row 1, out-of-bounds).
+- **CLI tests**: when changing `main.rs`, verify both direct file usage and stdin usage. Prefer command-style integration checks for user-facing behavior.
 
 ---
 
@@ -217,12 +227,12 @@ Summary of what `maaslalani/sheets` (Go) has and the current status in this proj
 
 | Feature | sheets (Go) | zellij-sheets status |
 |---|---|---|
-| Column cursor | ✅ | 🔲 planned (feature 1) |
-| Horizontal scrolling | ✅ | 🔲 planned (features 1 + 4) |
-| Vim navigation (`hjkl`, `gg`/`G`, etc.) | ✅ | 🔲 planned (feature 2) |
-| Search (`/`, `?`, `n`, `N`) | ✅ | 🔲 planned (feature 3) |
-| Cell addressing CLI (`B9`, `B1:B3`) | ✅ | 🔲 planned (feature 5) |
-| stdin / pipe support | ✅ | 🔲 planned (feature 6) |
+| Column cursor | ✅ | ✅ |
+| Horizontal scrolling | ✅ | ✅ |
+| Vim navigation (`hjkl`, `gg`/`G`, etc.) | ✅ | ✅ |
+| Search (`/`, `?`, `n`, `N`) | ✅ | ✅ |
+| Cell addressing CLI (`B9`, `B1:B3`) | ✅ | ✅ |
+| stdin / pipe support | ✅ | ✅ |
 | Cell editing + undo/redo | ✅ | ❌ not planned yet |
 | Visual/row selection + yank/cut/paste | ✅ | ❌ not planned yet |
 | Command mode (`:w`, `:e`, `:goto`) | ✅ | ❌ not planned yet |
