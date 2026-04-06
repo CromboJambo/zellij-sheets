@@ -4,6 +4,7 @@
 //! including CSV and Excel files.
 
 use calamine::{open_workbook_auto, Data, Reader};
+use std::io::Read;
 use std::path::Path;
 use thiserror::Error;
 
@@ -78,8 +79,12 @@ pub fn load_data(path: &Path) -> Result<LoadedData> {
 ///
 /// Returns `LoadedData` on success or `DataLoaderError` on failure
 pub fn load_csv(path: &Path) -> Result<LoadedData> {
-    let mut reader = csv::Reader::from_path(path)?;
-    let headers = reader
+    load_csv_from_reader(std::fs::File::open(path)?)
+}
+
+pub fn load_csv_from_reader(reader: impl Read) -> Result<LoadedData> {
+    let mut csv_reader = csv::Reader::from_reader(reader);
+    let headers = csv_reader
         .headers()?
         .iter()
         .enumerate()
@@ -87,7 +92,7 @@ pub fn load_csv(path: &Path) -> Result<LoadedData> {
         .collect::<Vec<_>>();
 
     let mut rows = Vec::new();
-    for record in reader.records() {
+    for record in csv_reader.records() {
         let record = record?;
         let mut row = record.iter().map(ToOwned::to_owned).collect::<Vec<_>>();
         row.resize(headers.len(), String::new());
@@ -99,6 +104,16 @@ pub fn load_csv(path: &Path) -> Result<LoadedData> {
         rows,
         source: DataSource::Csv,
     })
+}
+
+pub fn write_csv(path: &Path, data: &LoadedData) -> Result<()> {
+    let mut writer = csv::Writer::from_path(path)?;
+    writer.write_record(&data.headers)?;
+    for row in &data.rows {
+        writer.write_record(row)?;
+    }
+    writer.flush()?;
+    Ok(())
 }
 
 pub fn load_excel(path: &Path) -> Result<LoadedData> {
