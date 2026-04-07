@@ -515,7 +515,7 @@ impl SheetsState {
     pub fn begin_search(&mut self, direction: SearchDirection) {
         self.search_active = true;
         self.search_direction = direction;
-        self.search_query = Some(String::new());
+        self.search_query = None;
     }
 
     pub fn search_append(&mut self, ch: char) {
@@ -622,8 +622,8 @@ impl SheetsState {
         Ok(self.selected_col)
     }
 
-    pub fn get_row_range(&self) -> Result<(usize, usize)> {
-        Ok(self.row_range())
+    pub fn get_row_range(&self) -> (usize, usize) {
+        self.row_range()
     }
 
     pub fn get_width(&self) -> Result<usize> {
