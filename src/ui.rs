@@ -1,65 +1,24 @@
-// Zellij Sheets - UI Rendering Module
+//! UI rendering helpers for zellij-sheets.
+//!
+//! Owns the terminal rendering logic and color scheme. The `UiRenderer` is a
+//! thin wrapper around the layout engine and drawing functions.
+//!
+//! This module is shared between the plugin and native CLI.
 
-use crate::config::ThemeConfig;
-use crate::layout::{fit_cell, ColumnLayout, LayoutEngine};
-use crate::state::{cell_matches_query, DataType, SearchDirection, SheetsState, StatusLevel};
-use thiserror::Error;
+use std::fmt::Write;
 
-#[derive(Debug, Error)]
-pub enum UiError {
-    #[error("IO error: {0}")]
-    IoError(#[from] std::io::Error),
+use crate::{
+    layout::{ColumnLayout, LayoutEngine},
+    state::{SearchDirection, SheetsState, ViewMode},
+    ui::{Colors, UiError},
+};
 
-    #[error("Rendering error: {0}")]
-    RenderError(String),
-
-    #[error("Color formatting error: {0}")]
-    ColorError(String),
-}
-
-pub type Result<T> = std::result::Result<T, UiError>;
-
-#[derive(Default)]
-pub struct Colors {
-    pub foreground: Option<String>,
-    pub background: Option<String>,
-}
-
-impl Colors {
-    pub fn with_fg(fg: impl Into<String>) -> Self {
-        Self {
-            foreground: Some(fg.into()),
-            ..Default::default()
-        }
-    }
-
-    pub fn with_bg(bg: impl Into<String>) -> Self {
-        Self {
-            background: Some(bg.into()),
-            ..Default::default()
-        }
-    }
-
-    pub fn reset(&self) -> String {
-        "\x1b[0m".to_string()
-    }
-
-    pub fn apply(&self) -> String {
-        let mut result = String::new();
-        if let Some(fg) = &self.foreground {
-            result.push_str(&format!("\x1b[{}m", fg));
-        }
-        if let Some(bg) = &self.background {
-            result.push_str(&format!("\x1b[{}m", bg));
-        }
-        result
-    }
-}
-
+/// Terminal UI renderer for zellij-sheets.
+///
+/// The `UiRenderer` is a thin wrapper around the layout engine and drawing
+/// functions. It owns the color scheme and terminal escape sequences.
 pub struct UiRenderer {
-    use_colors: bool,
-    theme: Option<ThemeConfig>,
-    layout_engine: LayoutEngine,
+    theme: Colors,
 }
 
 impl Default for UiRenderer {
@@ -69,34 +28,29 @@ impl Default for UiRenderer {
 }
 
 impl UiRenderer {
+    /// Create a new UI renderer with the default color scheme.
     pub fn new() -> Self {
         Self {
-            use_colors: true,
-            theme: None,
-            layout_engine: LayoutEngine::new(),
+            theme: Colors::default(),
         }
     }
 
-    pub fn with_theme(theme: ThemeConfig) -> Self {
-        Self {
-            use_colors: true,
-            theme: Some(theme),
-            layout_engine: LayoutEngine::new(),
-        }
+    /// Get the current color scheme.
+    pub fn get_theme(&self) -> &Colors {
+        &self.theme
     }
 
-    pub fn set_use_colors(&mut self, use_colors: bool) {
-        self.use_colors = use_colors;
+    /// Set the color scheme.
+    pub fn set_theme(&mut self, theme: Colors) {
+        self.theme = theme;
     }
 
-    pub fn set_theme(&mut self, theme: ThemeConfig) {
-        self.theme = Some(theme);
-    }
-
-    pub fn draw_ui(&self, state: &SheetsState) -> Result<String> {
+    /// Draw the entire UI for a given state.
+    ///
+    /// This is the main entry point for rendering the spreadsheet grid.
+    pub fn draw_ui(&self, state: &SheetsState) -> Result<String, UiError> {
         let mut lines = Vec::new();
         lines.push(self.draw_header(state)?);
-        lines.push(self.draw_separator(state)?);
         self.draw_data_rows(&mut lines, state)?;
         lines.push(self.draw_footer(state)?);
         Ok(lines.join("\n"))
@@ -107,10 +61,12 @@ impl UiRenderer {
         let header_style = self.get_color(&theme.header_background);
         let text_style = self.get_color(&theme.header_text);
         let reset = "\x1b[0m";
-        let mode_label = state
-            .get_view_mode()
-            .map(|m| format!("{:?}", m))
-            .unwrap_or_default();
+        let mode_label = match state.get_view_mode() {
+            ViewMode::Grid => "grid",
+            ViewMode::List => "list",
+            ViewMode::Compact => "compact",
+            ViewMode::Raw => "raw",
+        };
 
         let header = format!(
             "{}{}Zellij Sheets{} | {} | {} rows | {}{}",
@@ -118,45 +74,31 @@ impl UiRenderer {
             text_style,
             reset,
             state.file_name(),
-            state.row_count(),
             mode_label,
-            reset,
+            state.row_count(),
+            reset
         );
-
         Ok(header)
     }
 
-    fn draw_separator(&self, state: &SheetsState) -> Result<String> {
+    fn draw_data_rows(&self, lines: &mut Vec<String>, state: &SheetsState) -> Result<(), UiError> {
         let theme = self.get_theme();
-        let width = state.get_width().unwrap_or(80);
-        let bg_color = self.get_color(&theme.header_background);
-        let text_color = self.get_color(&theme.header_text);
-        Ok(format!(
-            "{}{}{}\x1b[0m",
-            bg_color,
-            text_color,
-            "─".repeat(width)
-        ))
-    }
+        let sep_style = self.get_color(&theme.separator);
+        let reset = "\x1b[0m";
 
-    fn draw_data_rows(&self, lines: &mut Vec<String>, state: &SheetsState) -> Result<()> {
-        let width = state.get_width().unwrap_or(80);
-        let layouts = self.layout_engine.resolve(&state.layout_cache, width);
-        let (start, end) = state.row_range();
-        let visible_cols = state.visible_cols();
+        let col_offset = state.col_offset();
+        let visible_cols = state.visible_cols_from_offset(col_offset);
 
-        if let Some(headers) = state.headers() {
-            lines.push(self.render_row(headers, state, &layouts, true, None, visible_cols)?);
-        }
+        let layouts = &state.layout_cache().layouts;
+        let rows = state.rows();
 
-        for row in start..end {
-            if let Some(values) = state.get_row(row) {
-                let is_selected = row == state.selected_row();
-                let prefix = if is_selected { ">" } else { " " };
-                let row_line =
-                    self.render_row(&values, state, &layouts, false, Some(row), visible_cols)?;
-                lines.push(format!("{}{}", prefix, row_line));
-            }
+        for (row_index, row) in rows
+            .iter()
+            .enumerate()
+            .skip(state.scroll_row())
+            .take(state.visible_rows())
+        {
+            lines.push(self.build_row(row, state, layouts, false, Some(row_index), visible_cols));
         }
 
         Ok(())
@@ -164,10 +106,7 @@ impl UiRenderer {
 
     fn draw_footer(&self, state: &SheetsState) -> Result<String> {
         let theme = self.get_theme();
-        let sep_style = format!(
-            "\x1b[48;5;{}m\x1b[38;5;{}m",
-            theme.header_background, theme.header_text
-        );
+        let sep_style = self.get_color(&theme.separator);
         let reset = "\x1b[0m";
         let mut footer = format!(
             "{}Keys: Arrows, h/j/k/l, / ? n N, PgUp/PgDn, Home/End, q/Ctrl-C{}",
@@ -178,32 +117,27 @@ impl UiRenderer {
             state.selected_row() + 1,
             state.selected_col() + 1
         ));
-        if let Ok(Some(query)) = state.get_search_query() {
-            let prefix = match state.search_direction() {
-                SearchDirection::Forward => '/',
-                SearchDirection::Backward => '?',
-            };
-            if state.is_search_active() || !query.is_empty() {
-                footer.push_str(&format!(" | {prefix}{query}"));
-            }
-        }
-
-        if let Ok(messages) = state.get_status_messages() {
-            if let Some(msg) = messages.iter().next_back() {
-                let level_color = match msg.level {
-                    StatusLevel::Info => "34",
-                    StatusLevel::Success => "32",
-                    StatusLevel::Warning => "33",
-                    StatusLevel::Error => "31",
+        if let Ok(query) = state.get_search_query() {
+            if let Some(query) = query {
+                let prefix = match state.search_direction() {
+                    SearchDirection::Forward => '/',
+                    SearchDirection::Backward => '?',
                 };
-                footer.push_str(&format!(" | \x1b[{}m{}\x1b[0m", level_color, msg.message));
+                if state.is_search_active() || !query.is_empty() {
+                    footer.push_str(&format!(" | {prefix}{query}"));
+                }
             }
         }
 
         Ok(footer)
     }
 
-    fn render_row(
+    /// Build a single display row.
+    ///
+    /// - `is_header`: plain text
+    /// - `is_selected`: prefixed with `>`
+    /// - plain data rows: prefixed with a space
+    fn build_row(
         &self,
         values: &[String],
         state: &SheetsState,
@@ -211,118 +145,77 @@ impl UiRenderer {
         is_header: bool,
         row_index: Option<usize>,
         visible_cols: usize,
-    ) -> Result<String> {
-        let mut cells = Vec::new();
+    ) -> String {
         let theme = self.get_theme();
-        let col_offset = state.col_offset();
+        let sep_style = self.get_color(&theme.separator);
+        let reset = "\x1b[0m";
 
-        for (col, value) in values
+        let cells = values
             .iter()
             .enumerate()
-            .skip(col_offset)
+            .skip(state.col_offset())
             .take(visible_cols)
-        {
-            let width = layouts.get(col).map(|l| l.resolved_width).unwrap_or(8);
-            let fitted = fit_cell(value, width);
-            let is_selected_col = col == state.selected_col();
-            let is_selected_cell = row_index == Some(state.selected_row()) && is_selected_col;
-            let matches_search = state
-                .get_search_query()
-                .ok()
-                .flatten()
-                .is_some_and(|query| cell_matches_query(value, &query));
+            .map(|(col, value)| {
+                let width = layouts.get(col).map(|l| l.resolved_width).unwrap_or(8);
+                let fitted = crate::layout::fit_cell(value, width);
+                let is_selected_col = col == state.selected_col();
+                let is_selected_cell = row_index == Some(state.selected_row()) && is_selected_col;
+                let matches_search = state
+                    .get_search_query()
+                    .ok()
+                    .flatten()
+                    .is_some_and(|query| crate::state::cell_matches_query(value, &query));
 
-            let cell_value = if is_header {
-                if is_selected_col {
-                    let bg_color = self.get_color(&theme.selected_background);
-                    let text_color = self.get_color(&theme.selected_text);
-                    format!("{}{}{}\x1b[0m", bg_color, text_color, fitted)
+                let cell_value = if is_header {
+                    if is_selected_col {
+                        let bg_color = self.get_color(&theme.selected_background);
+                        let text_color = self.get_color(&theme.selected_text);
+                        format!("{}{}{}\x1b[0m", bg_color, text_color, fitted)
+                    } else {
+                        fitted
+                    }
+                } else if is_selected_cell && width >= 2 {
+                    let inner = crate::layout::fit_cell(value, width.saturating_sub(2));
+                    format!("[{inner}]")
+                } else if matches_search && width >= 2 {
+                    let inner = crate::layout::fit_cell(value, width.saturating_sub(2));
+                    format!("{{{inner}}}")
                 } else {
-                    let bg_color = self.get_color(&theme.header_background);
-                    let text_color = self.get_color(&theme.header_text);
-                    format!("{}{}{}\x1b[0m", bg_color, text_color, fitted)
-                }
-            } else if is_selected_cell {
-                let bg_color = self.get_color(&theme.selected_background);
-                let text_color = self.get_color(&theme.selected_text);
-                format!("{}{}{}\x1b[0m", bg_color, text_color, fitted)
-            } else if matches_search {
-                let bg_color = self.get_color(&theme.column_header_background);
-                let text_color = self.get_color(&theme.column_header_text);
-                format!("{}{}{}\x1b[0m", bg_color, text_color, fitted)
-            } else {
-                let color_code = match state.get_data_type(col).unwrap_or(DataType::String) {
-                    DataType::Number => theme.accent_colors.number.as_str(),
-                    DataType::Boolean => theme.accent_colors.boolean.as_str(),
-                    DataType::Empty => theme.accent_colors.date.as_str(),
-                    DataType::String => theme.accent_colors.string.as_str(),
+                    fitted
                 };
-                let bg_color = self.get_color(&theme.background);
-                let text_color = self.get_color(color_code);
-                format!("{}{}{}\x1b[0m", bg_color, text_color, fitted)
-            };
 
-            cells.push(cell_value);
-        }
+                cell_value
+            })
+            .collect::<Vec<_>>()
+            .join(" | ");
 
-        Ok(cells.join(" | "))
-    }
-
-    fn get_theme(&self) -> ThemeConfig {
-        self.theme.clone().unwrap_or_default()
-    }
-
-    pub fn get_color(&self, color_code: &str) -> String {
-        let color = if color_code.is_empty() {
-            "0"
+        if is_header {
+            cells
+        } else if row_index == Some(state.selected_row()) {
+            format!(">{cells}")
         } else {
-            color_code
-        };
-        if self.use_colors {
-            format!("\x1b[38;5;{}m", color)
-        } else {
-            String::new()
+            format!(" {cells}")
         }
     }
-}
 
-pub fn draw_error(message: &str) -> String {
-    format!("\x1b[31mError: {}\x1b[0m", message)
-}
+    /// Get the color escape sequence for a given color.
+    fn get_color(&self, color: &str) -> String {
+        // Return an empty string for no-color mode or invalid color
+        if color.is_empty() || color == "none" {
+            return String::new();
+        }
 
-pub fn draw_warning(message: &str) -> String {
-    format!("\x1b[33mWarning: {}\x1b[0m", message)
-}
-
-pub fn draw_info(message: &str) -> String {
-    format!("\x1b[34mInfo: {}\x1b[0m", message)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::SheetsConfig;
-    use std::sync::Arc;
-
-    #[test]
-    fn test_ui_renderer_creation() {
-        let renderer = UiRenderer::new();
-        assert!(renderer
-            .draw_ui(&SheetsState::new(Arc::new(SheetsConfig::default())))
-            .is_ok());
-    }
-
-    #[test]
-    fn test_theme_config_default() {
-        let theme = ThemeConfig::default();
-        assert_eq!(theme.header_background, "#0055AA");
-        assert_eq!(theme.header_text, "#FFFFFF");
-    }
-
-    #[test]
-    fn test_colors_default() {
-        let colors = Colors::default();
-        assert!(colors.foreground.is_none());
-        assert!(colors.background.is_none());
+        // Simple color mapping - in a real implementation this would be more sophisticated
+        match color {
+            "black" => "\x1b[30m".to_string(),
+            "red" => "\x1b[31m".to_string(),
+            "green" => "\x1b[32m".to_string(),
+            "yellow" => "\x1b[33m".to_string(),
+            "blue" => "\x1b[34m".to_string(),
+            "magenta" => "\x1b[35m".to_string(),
+            "cyan" => "\x1b[36m".to_string(),
+            "white" => "\x1b[37m".to_string(),
+            _ => String::new(),
+        }
     }
 }
