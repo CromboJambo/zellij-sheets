@@ -75,6 +75,9 @@ pub mod layout;
 pub mod state;
 pub mod ui;
 
+#[cfg(not(target_family = "wasm"))]
+pub mod tui;
+
 /// CLI address parsing helpers
 pub use address::{
     col_letter_to_index, index_to_col_letters, parse_address_command, AddressCommand, CellAddress,

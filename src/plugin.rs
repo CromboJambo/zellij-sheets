@@ -313,63 +313,13 @@ impl ZellijPlugin for PluginState {
             return;
         }
 
-        let engine = LayoutEngine::new();
-        let layouts = engine.resolve(&self.sheets.layout_cache, cols);
-        let visible_cols = self.sheets.visible_cols();
-        let file_info = format!(
-            "Zellij Sheets  {}  {} rows  r{} c{}",
-            self.sheets.file_name(),
-            self.sheets.row_count(),
-            self.sheets.selected_row() + 1,
-            self.sheets.selected_col() + 1,
+        let renderer = UiRenderer::new();
+        println!(
+            "{}",
+            renderer
+                .draw_ui(&self.sheets)
+                .unwrap_or_else(|error| { format!("Error rendering UI: {}", error) })
         );
-        println!("{}", file_info);
-        println!("{}", "-".repeat(cols));
-
-        if let Some(headers) = self.sheets.headers() {
-            println!(
-                "{}",
-                build_row(headers, &self.sheets, &layouts, true, None, visible_cols,)
-            );
-        }
-
-        if self.sheets.row_count() == 0 {
-            println!("File loaded, but it does not contain any data rows.");
-        }
-
-        let (start, end) = self.sheets.row_range();
-        for row_idx in start..end {
-            if let Some(values) = self.sheets.get_row(row_idx) {
-                println!(
-                    "{}",
-                    build_row(
-                        &values,
-                        &self.sheets,
-                        &layouts,
-                        false,
-                        Some(row_idx),
-                        visible_cols,
-                    )
-                );
-            }
-        }
-
-        println!("{}", "-".repeat(cols));
-        if self.input_mode == InputMode::Search {
-            let prefix = match self.sheets.search_direction() {
-                SearchDirection::Forward => '/',
-                SearchDirection::Backward => '?',
-            };
-            let query = self
-                .sheets
-                .get_search_query()
-                .ok()
-                .flatten()
-                .unwrap_or_default();
-            println!("Search: {prefix}{query}  Enter=commit Esc=cancel Backspace=delete");
-        } else {
-            println!("Keys: Arrows hjkl gg/G H/M/L 0/$ / ? n N Ctrl-U/D q/Ctrl-C");
-        }
     }
 }
 

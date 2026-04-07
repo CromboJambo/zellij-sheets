@@ -15,7 +15,7 @@ use zellij_sheets::data_loader::{DataSource, LoadedData};
 #[cfg(not(target_family = "wasm"))]
 use zellij_sheets::{
     index_to_col_letters, load_csv_from_reader, load_data, parse_address_command, write_csv,
-    AddressCommand, CellAddress, SheetsConfig, SheetsState, UiRenderer,
+    AddressCommand, CellAddress, SheetsConfig, SheetsState,
 };
 
 #[cfg(not(target_family = "wasm"))]
@@ -73,6 +73,21 @@ fn render_cli(input_source: InputSource) -> anyhow::Result<()> {
         }
     }
 
+    // When stdout is a real terminal, launch the interactive TUI.
+    // When stdout is piped/redirected (e.g. in tests or scripts), fall back
+    // to the static single-frame render so pipes still work.
+    if io::stdout().is_terminal() {
+        zellij_sheets::tui::run(&mut state)
+    } else {
+        render_static(&state)
+    }
+}
+
+/// One-shot static render — used when stdout is not a terminal.
+#[cfg(not(target_family = "wasm"))]
+fn render_static(state: &SheetsState) -> anyhow::Result<()> {
+    use zellij_sheets::UiRenderer;
+
     let width = std::env::var("COLUMNS")
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
@@ -81,13 +96,16 @@ fn render_cli(input_source: InputSource) -> anyhow::Result<()> {
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(24);
-    state.resize(width, height);
+
+    // render_static takes &SheetsState but resize needs &mut — clone for sizing.
+    let mut sized = state.clone();
+    sized.resize(width, height);
 
     let renderer = UiRenderer::new();
     println!(
         "{}",
         renderer
-            .draw_ui(&state)
+            .draw_ui(&sized)
             .unwrap_or_else(|error| format!("Error: {error}"))
     );
     Ok(())

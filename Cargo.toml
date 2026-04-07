@@ -25,6 +25,9 @@ include = [
 default = []
 plugin-smoke = []
 
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+crossterm = "0.29"
+
 [dependencies]
 calamine = "0.33"
 anyhow = "1.0"

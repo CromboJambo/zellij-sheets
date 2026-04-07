@@ -104,10 +104,8 @@ impl UiRenderer {
 
     fn draw_header(&self, state: &SheetsState) -> Result<String> {
         let theme = self.get_theme();
-        let header_style = format!(
-            "\x1b[48;5;{}m\x1b[38;5;{}m",
-            theme.header_background, theme.header_text
-        );
+        let header_style = self.get_color(&theme.header_background);
+        let text_style = self.get_color(&theme.header_text);
         let reset = "\x1b[0m";
         let mode_label = state
             .get_view_mode()
@@ -115,8 +113,9 @@ impl UiRenderer {
             .unwrap_or_default();
 
         let header = format!(
-            "{}Zellij Sheets{} | {} | {} rows | {}{}",
+            "{}{}Zellij Sheets{} | {} | {} rows | {}{}",
             header_style,
+            text_style,
             reset,
             state.file_name(),
             state.row_count(),
@@ -130,10 +129,12 @@ impl UiRenderer {
     fn draw_separator(&self, state: &SheetsState) -> Result<String> {
         let theme = self.get_theme();
         let width = state.get_width().unwrap_or(80);
+        let bg_color = self.get_color(&theme.header_background);
+        let text_color = self.get_color(&theme.header_text);
         Ok(format!(
-            "\x1b[48;5;{}m\x1b[38;5;{}m{}\x1b[0m",
-            theme.header_background,
-            theme.header_text,
+            "{}{}{}\x1b[0m",
+            bg_color,
+            text_color,
             "─".repeat(width)
         ))
     }
@@ -233,26 +234,22 @@ impl UiRenderer {
 
             let cell_value = if is_header {
                 if is_selected_col {
-                    format!(
-                        "\x1b[1;48;5;{}m\x1b[38;5;{}m{}\x1b[0m",
-                        theme.selected_background, theme.selected_text, fitted
-                    )
+                    let bg_color = self.get_color(&theme.selected_background);
+                    let text_color = self.get_color(&theme.selected_text);
+                    format!("{}{}{}\x1b[0m", bg_color, text_color, fitted)
                 } else {
-                    format!(
-                        "\x1b[1;48;5;{}m\x1b[38;5;{}m{}\x1b[0m",
-                        theme.header_background, theme.header_text, fitted
-                    )
+                    let bg_color = self.get_color(&theme.header_background);
+                    let text_color = self.get_color(&theme.header_text);
+                    format!("{}{}{}\x1b[0m", bg_color, text_color, fitted)
                 }
             } else if is_selected_cell {
-                format!(
-                    "\x1b[48;5;{}m\x1b[38;5;{}m{}\x1b[0m",
-                    theme.selected_background, theme.selected_text, fitted
-                )
+                let bg_color = self.get_color(&theme.selected_background);
+                let text_color = self.get_color(&theme.selected_text);
+                format!("{}{}{}\x1b[0m", bg_color, text_color, fitted)
             } else if matches_search {
-                format!(
-                    "\x1b[48;5;{}m\x1b[38;5;{}m{}\x1b[0m",
-                    theme.column_header_background, theme.column_header_text, fitted
-                )
+                let bg_color = self.get_color(&theme.column_header_background);
+                let text_color = self.get_color(&theme.column_header_text);
+                format!("{}{}{}\x1b[0m", bg_color, text_color, fitted)
             } else {
                 let color_code = match state.get_data_type(col).unwrap_or(DataType::String) {
                     DataType::Number => theme.accent_colors.number.as_str(),
@@ -260,10 +257,9 @@ impl UiRenderer {
                     DataType::Empty => theme.accent_colors.date.as_str(),
                     DataType::String => theme.accent_colors.string.as_str(),
                 };
-                format!(
-                    "\x1b[48;5;{}m\x1b[38;5;{}m{}\x1b[0m",
-                    theme.background, color_code, fitted
-                )
+                let bg_color = self.get_color(&theme.background);
+                let text_color = self.get_color(color_code);
+                format!("{}{}{}\x1b[0m", bg_color, text_color, fitted)
             };
 
             cells.push(cell_value);

@@ -492,16 +492,16 @@ impl SheetsState {
         self.view_mode = mode;
     }
 
-    pub fn get_view_mode(&self) -> Result<ViewMode> {
-        Ok(self.view_mode.clone())
+    pub fn get_view_mode(&self) -> ViewMode {
+        self.view_mode.clone()
     }
 
     pub fn set_search_query(&mut self, query: Option<String>) {
         self.search_query = query;
     }
 
-    pub fn get_search_query(&self) -> Result<Option<String>> {
-        Ok(self.search_query.clone())
+    pub fn get_search_query(&self) -> Option<String> {
+        self.search_query.clone()
     }
 
     pub fn is_search_active(&self) -> bool {
