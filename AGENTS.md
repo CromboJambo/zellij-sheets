@@ -1,7 +1,3 @@
-# Repository Guidelines
-
-## Project Structure
-
 ```
 zellij-sheets/
 ├── src/
