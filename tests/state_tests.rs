@@ -45,7 +45,7 @@ mod tests {
         let config = Arc::new(SheetsConfig::default());
         let state = SheetsState::new(config);
 
-        assert_eq!(state.get_view_mode().unwrap(), ViewMode::Grid);
+        assert_eq!(state.get_view_mode(), ViewMode::Grid);
     }
 
     #[test]
@@ -54,7 +54,7 @@ mod tests {
         let mut state = SheetsState::new(config);
 
         state.set_view_mode(ViewMode::List);
-        assert_eq!(state.get_view_mode().unwrap(), ViewMode::List);
+        assert_eq!(state.get_view_mode(), ViewMode::List);
     }
 
     #[test]
@@ -399,10 +399,10 @@ mod tests {
         let mut state = SheetsState::new(config);
 
         state.set_search_query(Some("test".to_string()));
-        assert_eq!(state.get_search_query().unwrap(), Some("test".to_string()));
+        assert_eq!(state.get_search_query(), Some("test".to_string()));
 
         state.set_search_query(None);
-        assert_eq!(state.get_search_query().unwrap(), None);
+        assert_eq!(state.get_search_query(), None);
     }
 
     #[test]
@@ -417,7 +417,7 @@ mod tests {
 
         assert!(state.is_search_active());
         assert_eq!(state.search_direction(), SearchDirection::Backward);
-        assert_eq!(state.get_search_query().unwrap(), Some("foo".to_string()));
+        assert_eq!(state.get_search_query(), Some("foo".to_string()));
     }
 
     #[test]
@@ -481,7 +481,7 @@ mod tests {
 
         state.begin_search(SearchDirection::Forward);
         assert!(!state.search_commit());
-        assert_eq!(state.get_search_query().unwrap(), None);
+        assert_eq!(state.get_search_query(), None);
         assert_eq!(state.selected_row(), 0);
         assert_eq!(state.selected_col(), 0);
     }
@@ -532,11 +532,8 @@ mod tests {
         assert!(!serialized.is_empty());
 
         let deserialized = deserialize_state(&serialized).unwrap();
-        assert_eq!(deserialized.get_view_mode().unwrap(), ViewMode::List);
-        assert_eq!(
-            deserialized.get_search_query().unwrap(),
-            Some("test".to_string())
-        );
+        assert_eq!(deserialized.get_view_mode(), ViewMode::List);
+        assert_eq!(deserialized.get_search_query(), Some("test".to_string()));
         assert_eq!(deserialized.selected_col(), 3);
         assert_eq!(deserialized.col_offset(), 0);
     }
@@ -558,11 +555,8 @@ mod tests {
         assert!(!serialized.is_empty());
 
         let deserialized = deserialize_state(&serialized).unwrap();
-        assert_eq!(deserialized.get_view_mode().unwrap(), ViewMode::Grid);
-        assert_eq!(
-            deserialized.get_search_query().unwrap(),
-            Some("search".to_string())
-        );
+        assert_eq!(state.get_view_mode(), ViewMode::Grid);
+        assert_eq!(deserialized.get_search_query(), Some("search".to_string()));
         assert_eq!(deserialized.selected_col(), 3);
         assert_eq!(deserialized.col_offset(), 1);
     }
@@ -591,7 +585,7 @@ mod tests {
 
         assert_eq!(state.row_count(), 0);
         assert_eq!(state.col_count(), 0);
-        assert_eq!(state.get_view_mode().unwrap(), ViewMode::Grid);
+        assert_eq!(state.get_view_mode(), ViewMode::Grid);
         assert!(!state.get_show_row_numbers().unwrap());
         assert!(state.get_show_column_numbers().unwrap());
         assert!(state.get_show_grid_lines().unwrap());
