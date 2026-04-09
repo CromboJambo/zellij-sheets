@@ -112,10 +112,6 @@ struct SheetsStateSnapshot {
     search_direction: SearchDirection,
     file_path: Option<PathBuf>,
     last_error: Option<String>,
-    show_row_numbers: bool,
-    show_column_numbers: bool,
-    show_grid_lines: bool,
-    show_data_types: bool,
 }
 
 #[derive(Clone)]
@@ -143,10 +139,6 @@ pub struct SheetsState {
     file_mod_time: Option<SystemTime>,
     last_error: Option<String>,
     status_messages: Vec<StatusMessage>,
-    show_row_numbers: bool,
-    show_column_numbers: bool,
-    show_grid_lines: bool,
-    show_data_types: bool,
     pub layout_cache: LayoutCache,
 }
 
@@ -182,10 +174,6 @@ impl SheetsState {
             file_mod_time: None,
             last_error: None,
             status_messages: Vec::new(),
-            show_row_numbers: false,
-            show_column_numbers: true,
-            show_grid_lines: true,
-            show_data_types: false,
             layout_cache: LayoutCache::default(),
         }
     }
@@ -364,6 +352,10 @@ impl SheetsState {
         });
     }
 
+    // -------------------------------------------------------------------------
+    // Plain (infallible) accessors
+    // -------------------------------------------------------------------------
+
     pub fn scroll_row(&self) -> usize {
         self.scroll_row
     }
@@ -404,6 +396,90 @@ impl SheetsState {
         }
     }
 
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
+    pub fn config(&self) -> &SheetsConfig {
+        &self.config
+    }
+
+    pub fn set_config(&mut self, config: SheetsConfig) {
+        self.config = Arc::new(config);
+    }
+
+    pub fn file_path(&self) -> Option<&PathBuf> {
+        self.file_path.as_ref()
+    }
+
+    pub fn set_file_path(&mut self, path: PathBuf) {
+        self.file_path = Some(path);
+    }
+
+    pub fn file_mod_time(&self) -> Option<SystemTime> {
+        self.file_mod_time
+    }
+
+    pub fn set_file_mod_time(&mut self, time: Option<SystemTime>) {
+        self.file_mod_time = time;
+    }
+
+    pub fn last_error(&self) -> Option<&str> {
+        self.last_error.as_deref()
+    }
+
+    pub fn set_last_error(&mut self, error: Option<String>) {
+        self.last_error = error;
+    }
+
+    pub fn clear_last_error(&mut self) {
+        self.last_error = None;
+    }
+
+    /// Whether to show row numbers. Reads from `DisplayConfig`.
+    pub fn show_row_numbers(&self) -> bool {
+        self.config.display.show_row_numbers
+    }
+
+    /// Whether to show column numbers. Reads from `DisplayConfig`.
+    pub fn show_column_numbers(&self) -> bool {
+        self.config.display.show_column_numbers
+    }
+
+    /// Whether to show data type indicators. Reads from `DisplayConfig`.
+    pub fn show_data_types(&self) -> bool {
+        self.config.display.show_data_types
+    }
+
+    pub fn filter_expr(&self) -> Option<&str> {
+        self.filter_expr.as_deref()
+    }
+
+    pub fn set_filter_expr(&mut self, expr: Option<String>) {
+        self.filter_expr = expr;
+    }
+
+    pub fn sort_column(&self) -> Option<&str> {
+        self.sort_column.as_deref()
+    }
+
+    pub fn sort_direction(&self) -> &SortDirection {
+        &self.sort_direction
+    }
+
+    pub fn set_sort(&mut self, column: Option<String>, direction: SortDirection) {
+        self.sort_column = column;
+        self.sort_direction = direction;
+    }
+
+    // -------------------------------------------------------------------------
+    // Display helpers
+    // -------------------------------------------------------------------------
+
     pub fn visible_rows(&self) -> usize {
         self.height.saturating_sub(5).max(1)
     }
@@ -440,6 +516,10 @@ impl SheetsState {
         (start, end)
     }
 
+    pub fn get_row_range(&self) -> (usize, usize) {
+        self.row_range()
+    }
+
     pub fn get_cell(&self, row: usize, col: usize) -> Option<String> {
         self.rows.get(row)?.get(col).cloned()
     }
@@ -469,6 +549,10 @@ impl SheetsState {
         self.scroll_row >= self.max_scroll_row
     }
 
+    // -------------------------------------------------------------------------
+    // Status messages
+    // -------------------------------------------------------------------------
+
     pub fn add_status_message(&mut self, message: StatusMessage) {
         self.status_messages.push(message);
         // Expire messages using each message's own duration, not a shared one.
@@ -480,13 +564,17 @@ impl SheetsState {
         });
     }
 
-    pub fn get_status_messages(&self) -> Result<Vec<StatusMessage>> {
-        Ok(self.status_messages.clone())
+    pub fn status_messages(&self) -> &[StatusMessage] {
+        &self.status_messages
     }
 
     pub fn clear_status_messages(&mut self) {
         self.status_messages.clear();
     }
+
+    // -------------------------------------------------------------------------
+    // View mode
+    // -------------------------------------------------------------------------
 
     pub fn set_view_mode(&mut self, mode: ViewMode) {
         self.view_mode = mode;
@@ -496,12 +584,16 @@ impl SheetsState {
         self.view_mode.clone()
     }
 
+    // -------------------------------------------------------------------------
+    // Search
+    // -------------------------------------------------------------------------
+
     pub fn set_search_query(&mut self, query: Option<String>) {
         self.search_query = query;
     }
 
-    pub fn get_search_query(&self) -> Option<String> {
-        self.search_query.clone()
+    pub fn get_search_query(&self) -> Option<&str> {
+        self.search_query.as_deref()
     }
 
     pub fn is_search_active(&self) -> bool {
@@ -565,130 +657,81 @@ impl SheetsState {
         self.find_and_select_match(SearchDirection::Backward)
     }
 
-    pub fn set_filter_expr(&mut self, expr: Option<String>) {
-        self.filter_expr = expr;
+    // -------------------------------------------------------------------------
+    // Serialization
+    // -------------------------------------------------------------------------
+
+    /// Serialize the current state to a JSON snapshot string.
+    ///
+    /// Runtime-only fields (`config`, `status_messages`, `file_mod_time`) are
+    /// excluded; they cannot round-trip through serde without custom impls.
+    pub fn to_snapshot_json(&self) -> Result<String> {
+        let snapshot = SheetsStateSnapshot {
+            headers: self.headers.clone(),
+            rows: self.rows.clone(),
+            scroll_row: self.scroll_row,
+            selected_row: self.selected_row,
+            selected_col: self.selected_col,
+            col_offset: self.col_offset,
+            max_scroll_row: self.max_scroll_row,
+            max_col_offset: self.max_col_offset,
+            file_name: self.file_name.clone(),
+            width: self.width,
+            height: self.height,
+            view_mode: self.view_mode.clone(),
+            sort_column: self.sort_column.clone(),
+            sort_direction: self.sort_direction.clone(),
+            filter_expr: self.filter_expr.clone(),
+            search_query: self.search_query.clone(),
+            search_active: self.search_active,
+            search_direction: self.search_direction,
+            file_path: self.file_path.clone(),
+            last_error: self.last_error.clone(),
+        };
+        serde_json::to_string(&snapshot)
+            .map_err(|e| StateError::StateError(format!("serialization error: {e}")))
     }
 
-    pub fn get_filter_expr(&self) -> Result<Option<String>> {
-        Ok(self.filter_expr.clone())
+    /// Restore state from a JSON snapshot string produced by [`to_snapshot_json`].
+    ///
+    /// The `config` is taken from the caller; `status_messages` and
+    /// `file_mod_time` are reset to empty/`None`.
+    pub fn from_snapshot_json(json: &str, config: Arc<SheetsConfig>) -> Result<Self> {
+        let snapshot: SheetsStateSnapshot = serde_json::from_str(json)
+            .map_err(|e| StateError::StateError(format!("deserialization error: {e}")))?;
+
+        let layout_cache = LayoutCache::prepare(&snapshot.headers, &snapshot.rows);
+        Ok(Self {
+            headers: snapshot.headers,
+            rows: snapshot.rows,
+            scroll_row: snapshot.scroll_row,
+            selected_row: snapshot.selected_row,
+            selected_col: snapshot.selected_col,
+            col_offset: snapshot.col_offset,
+            max_scroll_row: snapshot.max_scroll_row,
+            max_col_offset: snapshot.max_col_offset,
+            file_name: snapshot.file_name,
+            width: snapshot.width,
+            height: snapshot.height,
+            config,
+            view_mode: snapshot.view_mode,
+            sort_column: snapshot.sort_column,
+            sort_direction: snapshot.sort_direction,
+            filter_expr: snapshot.filter_expr,
+            search_query: snapshot.search_query,
+            search_active: snapshot.search_active,
+            search_direction: snapshot.search_direction,
+            file_path: snapshot.file_path,
+            file_mod_time: None,
+            last_error: snapshot.last_error,
+            status_messages: Vec::new(),
+            layout_cache,
+        })
     }
 
-    pub fn set_sort(&mut self, column: Option<String>, direction: SortDirection) {
-        self.sort_column = column;
-        self.sort_direction = direction;
-    }
-
-    pub fn get_sort_column(&self) -> Result<Option<String>> {
-        Ok(self.sort_column.clone())
-    }
-
-    pub fn get_sort_direction(&self) -> Result<SortDirection> {
-        Ok(self.sort_direction.clone())
-    }
-
-    pub fn set_file_path(&mut self, path: PathBuf) {
-        self.file_path = Some(path);
-    }
-
-    pub fn get_file_path(&self) -> Result<Option<PathBuf>> {
-        Ok(self.file_path.clone())
-    }
-
-    pub fn set_file_mod_time(&mut self, time: Option<SystemTime>) {
-        self.file_mod_time = time;
-    }
-
-    pub fn get_file_mod_time(&self) -> Result<Option<SystemTime>> {
-        Ok(self.file_mod_time)
-    }
-
-    pub fn get_column_names(&self) -> Result<Vec<String>> {
-        Ok(self.headers.clone())
-    }
-
-    pub fn get_row_count(&self) -> Result<usize> {
-        Ok(self.row_count())
-    }
-
-    pub fn get_column_count(&self) -> Result<usize> {
-        Ok(self.col_count())
-    }
-
-    pub fn get_selected_row(&self) -> Result<usize> {
-        Ok(self.selected_row)
-    }
-
-    pub fn get_selected_col(&self) -> Result<usize> {
-        Ok(self.selected_col)
-    }
-
-    pub fn get_row_range(&self) -> (usize, usize) {
-        self.row_range()
-    }
-
-    pub fn get_width(&self) -> Result<usize> {
-        Ok(self.width)
-    }
-
-    pub fn get_height(&self) -> Result<usize> {
-        Ok(self.height)
-    }
-
-    pub fn get_file_name(&self) -> Result<String> {
-        Ok(self.file_name().to_string())
-    }
-
-    pub fn get_config(&self) -> Result<SheetsConfig> {
-        Ok((*self.config).clone())
-    }
-
-    pub fn set_config(&mut self, config: SheetsConfig) {
-        self.config = Arc::new(config);
-    }
-
-    pub fn get_last_error(&self) -> Result<Option<String>> {
-        Ok(self.last_error.clone())
-    }
-
-    pub fn set_last_error(&mut self, error: Option<String>) {
-        self.last_error = error;
-    }
-
-    pub fn clear_last_error(&mut self) {
-        self.last_error = None;
-    }
-
-    pub fn set_show_row_numbers(&mut self, show: bool) {
-        self.show_row_numbers = show;
-    }
-
-    pub fn get_show_row_numbers(&self) -> Result<bool> {
-        Ok(self.show_row_numbers)
-    }
-
-    pub fn set_show_column_numbers(&mut self, show: bool) {
-        self.show_column_numbers = show;
-    }
-
-    pub fn get_show_column_numbers(&self) -> Result<bool> {
-        Ok(self.show_column_numbers)
-    }
-
-    pub fn set_show_grid_lines(&mut self, show: bool) {
-        self.show_grid_lines = show;
-    }
-
-    pub fn get_show_grid_lines(&self) -> Result<bool> {
-        Ok(self.show_grid_lines)
-    }
-
-    pub fn set_show_data_types(&mut self, show: bool) {
-        self.show_data_types = show;
-    }
-
-    pub fn get_show_data_types(&self) -> Result<bool> {
-        Ok(self.show_data_types)
-    }
+    // -------------------------------------------------------------------------
+    // I/O-backed accessor (legitimately fallible)
+    // -------------------------------------------------------------------------
 
     pub fn is_file_modified(&self) -> Result<bool> {
         let Some(path) = self.file_path.as_ref() else {
@@ -700,6 +743,10 @@ impl SheetsState {
         let current_mod_time = std::fs::metadata(path).and_then(|m| m.modified())?;
         Ok(current_mod_time > last_mod_time)
     }
+
+    // -------------------------------------------------------------------------
+    // Private helpers
+    // -------------------------------------------------------------------------
 
     fn sync_bounds(&mut self) {
         self.max_scroll_row = self.row_count().saturating_sub(self.visible_rows());
@@ -799,78 +846,12 @@ impl SheetsState {
     }
 }
 
-pub fn serialize_state(state: &SheetsState) -> Result<String> {
-    let snapshot = SheetsStateSnapshot {
-        headers: state.headers.clone(),
-        rows: state.rows.clone(),
-        scroll_row: state.scroll_row,
-        selected_row: state.selected_row,
-        selected_col: state.selected_col,
-        col_offset: state.col_offset,
-        max_scroll_row: state.max_scroll_row,
-        max_col_offset: state.max_col_offset,
-        file_name: state.file_name.clone(),
-        width: state.width,
-        height: state.height,
-        view_mode: state.view_mode.clone(),
-        sort_column: state.sort_column.clone(),
-        sort_direction: state.sort_direction.clone(),
-        filter_expr: state.filter_expr.clone(),
-        search_query: state.search_query.clone(),
-        search_active: state.search_active,
-        search_direction: state.search_direction,
-        file_path: state.file_path.clone(),
-        last_error: state.last_error.clone(),
-        show_row_numbers: state.show_row_numbers,
-        show_column_numbers: state.show_column_numbers,
-        show_grid_lines: state.show_grid_lines,
-        show_data_types: state.show_data_types,
-    };
-    serde_json::to_string_pretty(&snapshot)
-        .map_err(|e| StateError::StateError(format!("Serialization error: {}", e)))
-}
+// -----------------------------------------------------------------------------
+// Free functions
+// -----------------------------------------------------------------------------
 
-pub fn deserialize_state(json: &str) -> Result<SheetsState> {
-    let snapshot: SheetsStateSnapshot = serde_json::from_str(json)
-        .map_err(|e| StateError::StateError(format!("Deserialization error: {}", e)))?;
-    let mut state = SheetsState::new(Arc::new(SheetsConfig::default()));
-    state.headers = snapshot.headers;
-    state.rows = snapshot.rows;
-    state.scroll_row = snapshot.scroll_row;
-    state.selected_row = snapshot.selected_row;
-    state.selected_col = snapshot.selected_col;
-    state.col_offset = snapshot.col_offset;
-    state.max_scroll_row = snapshot.max_scroll_row;
-    state.max_col_offset = snapshot.max_col_offset;
-    state.file_name = snapshot.file_name;
-    state.width = snapshot.width;
-    state.height = snapshot.height;
-    state.view_mode = snapshot.view_mode;
-    state.sort_column = snapshot.sort_column;
-    state.sort_direction = snapshot.sort_direction;
-    state.filter_expr = snapshot.filter_expr;
-    state.search_query = snapshot.search_query;
-    state.search_active = snapshot.search_active;
-    state.search_direction = snapshot.search_direction;
-    state.file_path = snapshot.file_path;
-    state.last_error = snapshot.last_error;
-    state.show_row_numbers = snapshot.show_row_numbers;
-    state.show_column_numbers = snapshot.show_column_numbers;
-    state.show_grid_lines = snapshot.show_grid_lines;
-    state.show_data_types = snapshot.show_data_types;
-    state.layout_cache = LayoutCache::prepare(&state.headers, &state.rows);
-    Ok(state)
-}
-
-pub fn save_state(state: &SheetsState, path: &PathBuf) -> Result<()> {
-    let json = serialize_state(state)?;
-    std::fs::write(path, json)?;
-    Ok(())
-}
-
-pub fn load_state(path: &PathBuf) -> Result<SheetsState> {
-    let json = std::fs::read_to_string(path)?;
-    deserialize_state(&json)
+pub fn cell_matches_query(value: &str, query: &str) -> bool {
+    value.to_lowercase().contains(&query.to_lowercase())
 }
 
 fn infer_data_type(value: &str) -> DataType {
@@ -878,16 +859,11 @@ fn infer_data_type(value: &str) -> DataType {
     if trimmed.is_empty() {
         return DataType::Empty;
     }
-    if trimmed.eq_ignore_ascii_case("true") || trimmed.eq_ignore_ascii_case("false") {
-        return DataType::Boolean;
-    }
-    if trimmed.parse::<i64>().is_ok() || trimmed.parse::<f64>().is_ok() {
+    if trimmed.parse::<f64>().is_ok() {
         return DataType::Number;
     }
+    if matches!(trimmed.to_lowercase().as_str(), "true" | "false") {
+        return DataType::Boolean;
+    }
     DataType::String
-}
-
-pub fn cell_matches_query(value: &str, query: &str) -> bool {
-    let trimmed_query = query.trim();
-    !trimmed_query.is_empty() && value.to_lowercase().contains(&trimmed_query.to_lowercase())
 }

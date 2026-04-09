@@ -23,8 +23,12 @@ pub enum UiError {
 
 /// Color scheme used by the renderer.
 ///
-/// Each field is either a named terminal color (`"red"`, `"cyan"`, …),
-/// a hex string (`"#FF0000"`), or `"none"` / `""` to suppress coloring.
+/// Each field must be a named ANSI terminal color recognized by
+/// [`UiRenderer::get_color`]: `"black"`, `"red"`, `"green"`, `"yellow"`,
+/// `"blue"`, `"magenta"`, `"cyan"`, `"white"`, or `"none"` / `""` to
+/// suppress coloring entirely.  Hex strings are **not** supported — the
+/// renderer emits SGR escape sequences directly and does not do palette
+/// look-ups.
 #[derive(Debug, Clone)]
 pub struct Colors {
     pub header_background: String,
@@ -119,7 +123,7 @@ impl UiRenderer {
         let visible_cols = state.visible_cols_from_offset(col_offset);
 
         let layouts = crate::layout::LayoutEngine::new()
-            .resolve(&state.layout_cache, state.get_width().unwrap_or(80));
+            .resolve(&state.layout_cache, state.width());
 
         for row_index in state.scroll_row()..state.scroll_row().saturating_add(state.visible_rows())
         {
@@ -193,7 +197,7 @@ impl UiRenderer {
                 let is_selected_cell = row_index == Some(state.selected_row()) && is_selected_col;
                 let matches_search = state
                     .get_search_query()
-                    .is_some_and(|query| crate::state::cell_matches_query(value, &query));
+                    .is_some_and(|query| crate::state::cell_matches_query(value, query));
 
                 if is_header {
                     if is_selected_col {
@@ -225,14 +229,12 @@ impl UiRenderer {
         }
     }
 
-    /// Get the color escape sequence for a given color.
+    /// Map a named color to an ANSI SGR foreground escape sequence.
+    ///
+    /// Accepts the eight standard ANSI color names.  Returns an empty string
+    /// for `"none"`, `""`, or any unrecognized value — callers should treat
+    /// an empty return as "no coloring".
     fn get_color(&self, color: &str) -> String {
-        // Return an empty string for no-color mode or invalid color
-        if color.is_empty() || color == "none" {
-            return String::new();
-        }
-
-        // Simple color mapping - in a real implementation this would be more sophisticated
         match color {
             "black" => "\x1b[30m".to_string(),
             "red" => "\x1b[31m".to_string(),
@@ -242,6 +244,7 @@ impl UiRenderer {
             "magenta" => "\x1b[35m".to_string(),
             "cyan" => "\x1b[36m".to_string(),
             "white" => "\x1b[37m".to_string(),
+            // "none", "", or anything else → suppress coloring
             _ => String::new(),
         }
     }

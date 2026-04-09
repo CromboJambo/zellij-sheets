@@ -39,9 +39,10 @@ pub fn parse_address_command(input: &str) -> Result<AddressCommand> {
     if let Some((lhs, rhs)) = input.split_once(':') {
         let start = parse_cell_address(lhs.trim())?;
         let end = parse_cell_address(rhs.trim())?;
+        let (norm_start, norm_end) = normalize_cell_range(start, end);
         return Ok(AddressCommand::Range {
-            start: normalize_cell_range(start, end).0,
-            end: normalize_cell_range(start, end).1,
+            start: norm_start,
+            end: norm_end,
         });
     }
 

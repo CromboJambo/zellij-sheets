@@ -150,7 +150,8 @@ impl PluginState {
             }
             BareKey::Char(character)
                 if character.eq_ignore_ascii_case(&'g')
-                    && key.has_only_modifiers(&[KeyModifier::Shift]) =>
+                    && (key.has_no_modifiers()
+                        || key.has_only_modifiers(&[KeyModifier::Shift])) =>
             {
                 self.sheets.go_to_bottom();
                 true
@@ -165,28 +166,32 @@ impl PluginState {
             }
             BareKey::Char(character)
                 if character.eq_ignore_ascii_case(&'n')
-                    && key.has_only_modifiers(&[KeyModifier::Shift]) =>
+                    && (key.has_no_modifiers()
+                        || key.has_only_modifiers(&[KeyModifier::Shift])) =>
             {
                 self.sheets.search_prev();
                 true
             }
             BareKey::Char(character)
                 if character.eq_ignore_ascii_case(&'h')
-                    && key.has_only_modifiers(&[KeyModifier::Shift]) =>
+                    && (key.has_no_modifiers()
+                        || key.has_only_modifiers(&[KeyModifier::Shift])) =>
             {
                 self.sheets.go_to_top_visible();
                 true
             }
             BareKey::Char(character)
                 if character.eq_ignore_ascii_case(&'m')
-                    && key.has_only_modifiers(&[KeyModifier::Shift]) =>
+                    && (key.has_no_modifiers()
+                        || key.has_only_modifiers(&[KeyModifier::Shift])) =>
             {
                 self.sheets.go_to_middle_visible();
                 true
             }
             BareKey::Char(character)
                 if character.eq_ignore_ascii_case(&'l')
-                    && key.has_only_modifiers(&[KeyModifier::Shift]) =>
+                    && (key.has_no_modifiers()
+                        || key.has_only_modifiers(&[KeyModifier::Shift])) =>
             {
                 self.sheets.go_to_bottom_visible();
                 true
@@ -196,10 +201,6 @@ impl PluginState {
                 true
             }
             BareKey::Char('$') if key.has_no_modifiers() => {
-                self.sheets.go_to_last_col();
-                true
-            }
-            BareKey::Char('4') if key.has_only_modifiers(&[KeyModifier::Shift]) => {
                 self.sheets.go_to_last_col();
                 true
             }
@@ -320,57 +321,5 @@ impl ZellijPlugin for PluginState {
                 .draw_ui(&self.sheets)
                 .unwrap_or_else(|error| { format!("Error rendering UI: {}", error) })
         );
-    }
-}
-
-/// Build a single display row.
-///
-/// - `is_header`: plain text
-/// - `is_selected`: prefixed with `>`
-/// - plain data rows: prefixed with a space
-fn build_row(
-    values: &[String],
-    sheets: &SheetsState,
-    layouts: &[ColumnLayout],
-    is_header: bool,
-    row_index: Option<usize>,
-    visible_cols: usize,
-) -> String {
-    let cells = values
-        .iter()
-        .enumerate()
-        .skip(sheets.col_offset())
-        .take(visible_cols)
-        .map(|(col, value)| {
-            let width = layouts.get(col).map(|l| l.resolved_width).unwrap_or(8);
-            let fitted = fit_cell(value, width);
-            let matches_search = sheets
-                .get_search_query()
-                .ok()
-                .flatten()
-                .is_some_and(|query| cell_matches_query(value, &query));
-
-            if col == sheets.selected_col()
-                && (is_header || row_index == Some(sheets.selected_row()))
-                && width >= 2
-            {
-                let inner = fit_cell(value, width.saturating_sub(2));
-                format!("[{inner}]")
-            } else if !is_header && matches_search && width >= 2 {
-                let inner = fit_cell(value, width.saturating_sub(2));
-                format!("{{{inner}}}")
-            } else {
-                fitted
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" | ");
-
-    if is_header {
-        cells
-    } else if row_index == Some(sheets.selected_row()) {
-        format!(">{cells}")
-    } else {
-        format!(" {cells}")
     }
 }
