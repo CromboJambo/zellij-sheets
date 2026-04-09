@@ -90,40 +90,6 @@ fn run_interactive(input_source: InputSource) -> anyhow::Result<()> {
     zellij_sheets::tui::run(&mut state)
 }
 
-#[cfg(not(target_family = "wasm"))]
-fn render_cli(input_source: InputSource) -> anyhow::Result<()> {
-    let config = SheetsConfig::default();
-    let mut state = SheetsState::new(Arc::new(config));
-
-    match input_source {
-        InputSource::Path(path) => state.load_file(path)?,
-        InputSource::Stdin => {
-            let data = read_stdin_csv()?;
-            state.init(data)?;
-        }
-    }
-
-    // Fall back to static render for pipes/redirects
-    render_static(&state)
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn run_interactive(input_source: InputSource) -> anyhow::Result<()> {
-    let config = SheetsConfig::default();
-    let mut state = SheetsState::new(Arc::new(config));
-
-    match input_source {
-        InputSource::Path(path) => state.load_file(path)?,
-        InputSource::Stdin => {
-            let data = read_stdin_csv()?;
-            state.init(data)?;
-        }
-    }
-
-    // Launch the interactive TUI
-    zellij_sheets::tui::run(&mut state)
-}
-
 /// One-shot static render — used when stdout is not a terminal.
 #[cfg(not(target_family = "wasm"))]
 fn render_static(state: &SheetsState) -> anyhow::Result<()> {
@@ -165,7 +131,6 @@ fn render_cli(input_source: InputSource) -> anyhow::Result<()> {
         }
     }
 
-    // Fall back to static render for pipes/redirects
     render_static(&state)
 }
 

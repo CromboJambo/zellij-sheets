@@ -5,13 +5,46 @@
 //!
 //! This module is shared between the plugin and native CLI.
 
-use std::fmt::Write;
-
 use crate::{
-    layout::{ColumnLayout, LayoutEngine},
+    layout::ColumnLayout,
     state::{SearchDirection, SheetsState, ViewMode},
-    ui::{Colors, UiError},
 };
+use thiserror::Error;
+
+/// Error type for UI rendering operations.
+#[derive(Debug, Error)]
+pub enum UiError {
+    #[error("Render error: {0}")]
+    RenderError(String),
+
+    #[error("Format error: {0}")]
+    FmtError(#[from] std::fmt::Error),
+}
+
+/// Color scheme used by the renderer.
+///
+/// Each field is either a named terminal color (`"red"`, `"cyan"`, …),
+/// a hex string (`"#FF0000"`), or `"none"` / `""` to suppress coloring.
+#[derive(Debug, Clone)]
+pub struct Colors {
+    pub header_background: String,
+    pub header_text: String,
+    pub selected_background: String,
+    pub selected_text: String,
+    pub separator: String,
+}
+
+impl Default for Colors {
+    fn default() -> Self {
+        Self {
+            header_background: "blue".to_string(),
+            header_text: "white".to_string(),
+            selected_background: "cyan".to_string(),
+            selected_text: "black".to_string(),
+            separator: "none".to_string(),
+        }
+    }
+}
 
 /// Terminal UI renderer for zellij-sheets.
 ///
@@ -56,7 +89,7 @@ impl UiRenderer {
         Ok(lines.join("\n"))
     }
 
-    fn draw_header(&self, state: &SheetsState) -> Result<String> {
+    fn draw_header(&self, state: &SheetsState) -> Result<String, UiError> {
         let theme = self.get_theme();
         let header_style = self.get_color(&theme.header_background);
         let text_style = self.get_color(&theme.header_text);
@@ -82,29 +115,31 @@ impl UiRenderer {
     }
 
     fn draw_data_rows(&self, lines: &mut Vec<String>, state: &SheetsState) -> Result<(), UiError> {
-        let theme = self.get_theme();
-        let sep_style = self.get_color(&theme.separator);
-        let reset = "\x1b[0m";
-
         let col_offset = state.col_offset();
         let visible_cols = state.visible_cols_from_offset(col_offset);
 
-        let layouts = &state.layout_cache().layouts;
-        let rows = state.rows();
+        let layouts = crate::layout::LayoutEngine::new()
+            .resolve(&state.layout_cache, state.get_width().unwrap_or(80));
 
-        for (row_index, row) in rows
-            .iter()
-            .enumerate()
-            .skip(state.scroll_row())
-            .take(state.visible_rows())
+        for row_index in state.scroll_row()..state.scroll_row().saturating_add(state.visible_rows())
         {
-            lines.push(self.build_row(row, state, layouts, false, Some(row_index), visible_cols));
+            let Some(row) = state.get_row(row_index) else {
+                break;
+            };
+            lines.push(self.build_row(
+                &row,
+                state,
+                &layouts,
+                false,
+                Some(row_index),
+                visible_cols,
+            ));
         }
 
         Ok(())
     }
 
-    fn draw_footer(&self, state: &SheetsState) -> Result<String> {
+    fn draw_footer(&self, state: &SheetsState) -> Result<String, UiError> {
         let theme = self.get_theme();
         let sep_style = self.get_color(&theme.separator);
         let reset = "\x1b[0m";
@@ -117,15 +152,13 @@ impl UiRenderer {
             state.selected_row() + 1,
             state.selected_col() + 1
         ));
-        if let Ok(query) = state.get_search_query() {
-            if let Some(query) = query {
-                let prefix = match state.search_direction() {
-                    SearchDirection::Forward => '/',
-                    SearchDirection::Backward => '?',
-                };
-                if state.is_search_active() || !query.is_empty() {
-                    footer.push_str(&format!(" | {prefix}{query}"));
-                }
+        if let Some(query) = state.get_search_query() {
+            let prefix = match state.search_direction() {
+                SearchDirection::Forward => '/',
+                SearchDirection::Backward => '?',
+            };
+            if state.is_search_active() || !query.is_empty() {
+                footer.push_str(&format!(" | {prefix}{query}"));
             }
         }
 
@@ -147,8 +180,6 @@ impl UiRenderer {
         visible_cols: usize,
     ) -> String {
         let theme = self.get_theme();
-        let sep_style = self.get_color(&theme.separator);
-        let reset = "\x1b[0m";
 
         let cells = values
             .iter()
@@ -162,11 +193,9 @@ impl UiRenderer {
                 let is_selected_cell = row_index == Some(state.selected_row()) && is_selected_col;
                 let matches_search = state
                     .get_search_query()
-                    .ok()
-                    .flatten()
                     .is_some_and(|query| crate::state::cell_matches_query(value, &query));
 
-                let cell_value = if is_header {
+                if is_header {
                     if is_selected_col {
                         let bg_color = self.get_color(&theme.selected_background);
                         let text_color = self.get_color(&theme.selected_text);
@@ -182,9 +211,7 @@ impl UiRenderer {
                     format!("{{{inner}}}")
                 } else {
                     fitted
-                };
-
-                cell_value
+                }
             })
             .collect::<Vec<_>>()
             .join(" | ");
