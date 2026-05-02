@@ -14,6 +14,13 @@ enum InputMode {
     Search,
 }
 
+/// First key of a two-key sequence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PendingKey {
+    /// `g` was pressed; waiting for a second `g` to go-to-top.
+    LowercaseG,
+}
+
 #[derive(Default)]
 pub struct PluginState {
     sheets: SheetsState,

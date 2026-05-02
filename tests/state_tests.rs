@@ -2,10 +2,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use zellij_sheets::config::SheetsConfig;
 use zellij_sheets::data_loader::{DataSource, LoadedData};
-use zellij_sheets::state::{
-    deserialize_state, serialize_state, DataType, SearchDirection, SheetsState, SortDirection,
-    StatusLevel, StatusMessage, ViewMode,
-};
+use zellij_sheets::state::{SortDirection, StatusLevel, StatusMessage, ViewMode};
+use zellij_sheets::{DataType, SearchDirection, SheetsState};
 
 #[cfg(test)]
 mod tests {
@@ -63,14 +61,8 @@ mod tests {
         let mut state = SheetsState::new(config);
 
         state.set_sort(Some("column1".to_string()), SortDirection::Ascending);
-        assert_eq!(
-            state.get_sort_column().unwrap(),
-            Some("column1".to_string())
-        );
-        assert_eq!(
-            state.get_sort_direction().unwrap(),
-            SortDirection::Ascending
-        );
+        assert_eq!(state.sort_column(), Some("column1"));
+        assert_eq!(*state.sort_direction(), SortDirection::Ascending);
     }
 
     #[test]
@@ -86,7 +78,7 @@ mod tests {
         };
 
         state.add_status_message(message);
-        let messages = state.get_status_messages().unwrap();
+        let messages = state.status_messages();
         assert_eq!(messages.len(), 1);
     }
 
@@ -103,7 +95,7 @@ mod tests {
         });
 
         state.clear_status_messages();
-        assert_eq!(state.get_status_messages().unwrap().len(), 0);
+        assert_eq!(state.status_messages().len(), 0);
     }
 
     #[test]
@@ -299,7 +291,7 @@ mod tests {
         let config = Arc::new(SheetsConfig::default());
         let state = SheetsState::new(config);
 
-        let retrieved_config = state.get_config().unwrap();
+        let retrieved_config = state.config();
         assert_eq!(retrieved_config.display.preview_rows, 20);
     }
 
@@ -310,7 +302,7 @@ mod tests {
 
         // No file loaded: should return the sentinel string
         assert_eq!(state.file_name(), "No file loaded");
-        assert_eq!(state.get_file_name().unwrap(), "No file loaded");
+        assert_eq!(state.file_name(), "No file loaded");
     }
 
     #[test]
@@ -319,8 +311,8 @@ mod tests {
         let mut state = SheetsState::new(config);
 
         state.resize(100, 50);
-        assert_eq!(state.get_width().unwrap(), 100);
-        assert_eq!(state.get_height().unwrap(), 50);
+        assert_eq!(state.width(), 100);
+        assert_eq!(state.height(), 50);
     }
 
     #[test]
@@ -358,16 +350,10 @@ mod tests {
     #[test]
     fn test_show_options() {
         let config = Arc::new(SheetsConfig::default());
-        let mut state = SheetsState::new(config);
+        let state = SheetsState::new(config);
 
-        state.set_show_row_numbers(true);
-        assert!(state.get_show_row_numbers().unwrap());
-
-        state.set_show_column_numbers(false);
-        assert!(!state.get_show_column_numbers().unwrap());
-
-        state.set_show_grid_lines(false);
-        assert!(!state.get_show_grid_lines().unwrap());
+        assert!(!state.show_row_numbers());
+        assert!(state.show_column_numbers());
     }
 
     #[test]
@@ -378,7 +364,7 @@ mod tests {
         let new_config = SheetsConfig::default();
         state.set_config(new_config);
 
-        assert_eq!(state.get_config().unwrap().display.preview_rows, 20);
+        assert_eq!(state.config().display.preview_rows, 20);
     }
 
     #[test]
@@ -388,8 +374,8 @@ mod tests {
 
         state.set_file_path(PathBuf::from("/test/file.csv"));
         assert_eq!(
-            state.get_file_path().unwrap(),
-            Some(PathBuf::from("/test/file.csv"))
+            state.file_path().map(|p| p.as_path()),
+            Some(std::path::Path::new("/test/file.csv"))
         );
     }
 
@@ -399,7 +385,7 @@ mod tests {
         let mut state = SheetsState::new(config);
 
         state.set_search_query(Some("test".to_string()));
-        assert_eq!(state.get_search_query(), Some("test".to_string()));
+        assert_eq!(state.get_search_query(), Some("test"));
 
         state.set_search_query(None);
         assert_eq!(state.get_search_query(), None);
@@ -417,7 +403,7 @@ mod tests {
 
         assert!(state.is_search_active());
         assert_eq!(state.search_direction(), SearchDirection::Backward);
-        assert_eq!(state.get_search_query(), Some("foo".to_string()));
+        assert_eq!(state.get_search_query(), Some("foo"));
     }
 
     #[test]
@@ -492,13 +478,10 @@ mod tests {
         let mut state = SheetsState::new(config);
 
         state.set_filter_expr(Some("column1 > 10".to_string()));
-        assert_eq!(
-            state.get_filter_expr().unwrap(),
-            Some("column1 > 10".to_string())
-        );
+        assert_eq!(state.filter_expr(), Some("column1 > 10"));
 
         state.set_filter_expr(None);
-        assert_eq!(state.get_filter_expr().unwrap(), None);
+        assert_eq!(state.filter_expr(), None);
     }
 
     #[test]
@@ -507,19 +490,16 @@ mod tests {
         let mut state = SheetsState::new(config);
 
         state.set_last_error(Some("Test error".to_string()));
-        assert_eq!(
-            state.get_last_error().unwrap(),
-            Some("Test error".to_string())
-        );
+        assert_eq!(state.last_error(), Some("Test error"));
 
         state.clear_last_error();
-        assert_eq!(state.get_last_error().unwrap(), None);
+        assert_eq!(state.last_error(), None);
     }
 
     #[test]
     fn test_serialize_deserialize_state() {
         let config = Arc::new(SheetsConfig::default());
-        let mut state = SheetsState::new(config);
+        let mut state = SheetsState::new(config.clone());
 
         state.set_view_mode(ViewMode::List);
         state.set_search_query(Some("test".to_string()));
@@ -528,12 +508,12 @@ mod tests {
         state.select_right();
         state.select_right();
 
-        let serialized = serialize_state(&state).unwrap();
+        let serialized = state.to_snapshot_json().unwrap();
         assert!(!serialized.is_empty());
 
-        let deserialized = deserialize_state(&serialized).unwrap();
+        let deserialized = SheetsState::from_snapshot_json(&serialized, config).unwrap();
         assert_eq!(deserialized.get_view_mode(), ViewMode::List);
-        assert_eq!(deserialized.get_search_query(), Some("test".to_string()));
+        assert_eq!(deserialized.get_search_query(), Some("test"));
         assert_eq!(deserialized.selected_col(), 3);
         assert_eq!(deserialized.col_offset(), 0);
     }
@@ -541,7 +521,7 @@ mod tests {
     #[test]
     fn test_serialize_deserialize_with_data() {
         let config = Arc::new(SheetsConfig::default());
-        let mut state = SheetsState::new(config);
+        let mut state = SheetsState::new(config.clone());
 
         state.resize(20, 12);
         state.init(sample_loaded_data(3, 6)).unwrap();
@@ -551,19 +531,20 @@ mod tests {
         state.select_right();
         state.select_right();
 
-        let serialized = serialize_state(&state).unwrap();
+        let serialized = state.to_snapshot_json().unwrap();
         assert!(!serialized.is_empty());
 
-        let deserialized = deserialize_state(&serialized).unwrap();
+        let deserialized = SheetsState::from_snapshot_json(&serialized, config).unwrap();
         assert_eq!(state.get_view_mode(), ViewMode::Grid);
-        assert_eq!(deserialized.get_search_query(), Some("search".to_string()));
+        assert_eq!(deserialized.get_search_query(), Some("search"));
         assert_eq!(deserialized.selected_col(), 3);
         assert_eq!(deserialized.col_offset(), 1);
     }
 
     #[test]
     fn test_serialize_deserialize_error() {
-        let result = deserialize_state("invalid json");
+        let config = Arc::new(SheetsConfig::default());
+        let result = SheetsState::from_snapshot_json("invalid json", config);
         assert!(result.is_err());
     }
 
@@ -574,7 +555,7 @@ mod tests {
 
         state.set_view_mode(ViewMode::List);
 
-        let result = serialize_state(&state);
+        let result = state.to_snapshot_json();
         assert!(result.is_ok());
         assert!(!result.unwrap().is_empty());
     }
@@ -586,10 +567,9 @@ mod tests {
         assert_eq!(state.row_count(), 0);
         assert_eq!(state.col_count(), 0);
         assert_eq!(state.get_view_mode(), ViewMode::Grid);
-        assert!(!state.get_show_row_numbers().unwrap());
-        assert!(state.get_show_column_numbers().unwrap());
-        assert!(state.get_show_grid_lines().unwrap());
-        assert!(!state.get_show_data_types().unwrap());
+        assert!(!state.show_row_numbers());
+        assert!(state.show_column_numbers());
+        assert!(!state.show_data_types());
         assert_eq!(state.selected_col(), 0);
         assert_eq!(state.col_offset(), 0);
     }

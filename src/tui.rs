@@ -23,20 +23,16 @@ use crossterm::{
 use crate::state::{SearchDirection, SheetsState};
 use crate::ui::UiRenderer;
 
-/// Input mode — mirrors `plugin.rs` `InputMode`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum InputMode {
     #[default]
     Normal,
     Search,
-    /// A prefix key has been pressed and we are waiting for the second key.
     Pending(PendingKey),
 }
 
-/// First key of a two-key sequence.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PendingKey {
-    /// `g` was pressed; waiting for a second `g` to go-to-top.
     LowercaseG,
 }
 
@@ -117,11 +113,7 @@ fn handle_key(state: &mut SheetsState, key: KeyEvent, mode: &mut InputMode) -> b
     }
 }
 
-fn handle_normal_key(
-    state: &mut SheetsState,
-    key: KeyEvent,
-    mode: &mut InputMode,
-) -> bool {
+fn handle_normal_key(state: &mut SheetsState, key: KeyEvent, mode: &mut InputMode) -> bool {
     let no_mod = key.modifiers == KeyModifiers::NONE;
     let shift = key.modifiers == KeyModifiers::SHIFT;
     let ctrl = key.modifiers == KeyModifiers::CONTROL;
@@ -193,11 +185,7 @@ fn handle_normal_key(
     false
 }
 
-fn handle_search_key(
-    state: &mut SheetsState,
-    key: KeyEvent,
-    mode: &mut InputMode,
-) -> bool {
+fn handle_search_key(state: &mut SheetsState, key: KeyEvent, mode: &mut InputMode) -> bool {
     match key.code {
         KeyCode::Esc => {
             state.search_cancel();
@@ -211,8 +199,7 @@ fn handle_search_key(
             state.search_backspace();
         }
         KeyCode::Char(ch)
-            if key.modifiers == KeyModifiers::NONE
-                || key.modifiers == KeyModifiers::SHIFT =>
+            if key.modifiers == KeyModifiers::NONE || key.modifiers == KeyModifiers::SHIFT =>
         {
             state.search_append(ch);
         }
@@ -227,7 +214,6 @@ fn handle_pending_key(
     mode: &mut InputMode,
     pending: PendingKey,
 ) -> bool {
-    // Always clear the pending state first; the match below re-arms if needed.
     *mode = InputMode::Normal;
 
     match pending {
@@ -235,7 +221,6 @@ fn handle_pending_key(
             if key.code == KeyCode::Char('g') && key.modifiers == KeyModifiers::NONE {
                 state.go_to_top();
             }
-            // Any other key: pending consumed, no action.
         }
     }
 

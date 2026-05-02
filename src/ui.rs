@@ -122,22 +122,15 @@ impl UiRenderer {
         let col_offset = state.col_offset();
         let visible_cols = state.visible_cols_from_offset(col_offset);
 
-        let layouts = crate::layout::LayoutEngine::new()
-            .resolve(&state.layout_cache, state.width());
+        let layouts =
+            crate::layout::LayoutEngine::new().resolve(&state.layout_cache, state.width());
 
         for row_index in state.scroll_row()..state.scroll_row().saturating_add(state.visible_rows())
         {
             let Some(row) = state.get_row(row_index) else {
                 break;
             };
-            lines.push(self.build_row(
-                &row,
-                state,
-                &layouts,
-                false,
-                Some(row_index),
-                visible_cols,
-            ));
+            lines.push(self.build_row(&row, state, &layouts, false, Some(row_index), visible_cols));
         }
 
         Ok(())
