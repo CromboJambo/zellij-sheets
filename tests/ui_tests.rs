@@ -79,4 +79,120 @@ mod tests {
         let rendered = renderer.draw_ui(&state).unwrap();
         assert!(rendered.contains("au"));
     }
+
+    #[test]
+    fn test_ui_renderer_header_contains_filename() {
+        let renderer = UiRenderer::new();
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.init(sample_data()).unwrap();
+
+        let rendered = renderer.draw_ui(&state).unwrap();
+        assert!(rendered.contains("No file loaded"));
+        assert!(rendered.contains("2"));
+    }
+
+    #[test]
+    fn test_ui_renderer_footer_shows_row_col() {
+        let renderer = UiRenderer::new();
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.init(sample_data()).unwrap();
+
+        let rendered = renderer.draw_ui(&state).unwrap();
+        assert!(rendered.contains("row 1 col 1"));
+
+        state.select_down();
+        state.select_right();
+        let rendered = renderer.draw_ui(&state).unwrap();
+        assert!(rendered.contains("row 2 col 2"));
+    }
+
+    #[test]
+    fn test_ui_renderer_selected_cell_brackets() {
+        let renderer = UiRenderer::new();
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.resize(80, 12);
+        state.init(sample_data()).unwrap();
+
+        let rendered = renderer.draw_ui(&state).unwrap();
+        // Selected cell at (0,0) gets bracketed. With tight column width,
+        // content may be truncated with a tilde: [al~]
+        assert!(rendered.contains("[al"), "rendered:\n{}", rendered);
+    }
+
+    #[test]
+    fn test_ui_renderer_selected_row_prefix() {
+        let renderer = UiRenderer::new();
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.resize(80, 12);
+        state.init(sample_data()).unwrap();
+
+        let rendered = renderer.draw_ui(&state).unwrap();
+        let lines: Vec<&str> = rendered.lines().collect();
+        for line in &lines {
+            if line.contains("alice") {
+                assert!(line.starts_with('>'));
+                break;
+            }
+        }
+    }
+
+    #[test]
+    fn test_ui_renderer_search_highlight_braces() {
+        let renderer = UiRenderer::new();
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.resize(80, 12);
+        state.init(sample_data()).unwrap();
+
+        state.set_search_query(Some("bob".to_string()));
+        state.search_next();
+
+        let rendered = renderer.draw_ui(&state).unwrap();
+        assert!(rendered.contains("[bob]"));
+    }
+
+    #[test]
+    fn test_ui_renderer_view_mode_in_header() {
+        let renderer = UiRenderer::new();
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.init(sample_data()).unwrap();
+
+        state.set_view_mode(zellij_sheets::state::ViewMode::Grid);
+        let rendered = renderer.draw_ui(&state).unwrap();
+        assert!(rendered.contains("grid"));
+
+        state.set_view_mode(zellij_sheets::state::ViewMode::List);
+        let rendered = renderer.draw_ui(&state).unwrap();
+        assert!(rendered.contains("list"));
+    }
+
+    #[test]
+    fn test_ui_renderer_multiple_rows() {
+        let renderer = UiRenderer::new();
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.resize(80, 20);
+        state
+            .init(LoadedData {
+                headers: vec!["a".into(), "b".into()],
+                rows: vec![
+                    vec!["r0c0".into(), "r0c1".into()],
+                    vec!["r1c0".into(), "r1c1".into()],
+                    vec!["r2c0".into(), "r2c1".into()],
+                ],
+                source: DataSource::Csv,
+            })
+            .unwrap();
+
+        let rendered = renderer.draw_ui(&state).unwrap();
+        // First row's selected cell is bracketed, check for content in non-selected form
+        assert!(rendered.contains("r0c1"), "rendered:\n{}", rendered);
+        assert!(rendered.contains("r1c0"));
+        assert!(rendered.contains("r2c0"));
+    }
 }

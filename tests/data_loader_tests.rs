@@ -248,4 +248,58 @@ mod tests {
             _ => panic!("Unexpected error type"),
         }
     }
+
+    #[test]
+    fn test_load_csv_quoted_fields() {
+        let result =
+            load_csv_from_reader(Cursor::new("name,desc\n\"Alice\",\"has, comma\"\n")).unwrap();
+        assert_eq!(result.headers, vec!["name", "desc"]);
+        assert_eq!(result.rows[0][0], "Alice");
+        assert_eq!(result.rows[0][1], "has, comma");
+    }
+
+    #[test]
+    fn test_load_csv_headers_only() {
+        let result = load_csv_from_reader(Cursor::new("a,b,c\n")).unwrap();
+        assert_eq!(result.headers, vec!["a", "b", "c"]);
+        assert!(result.rows.is_empty());
+    }
+
+    #[test]
+    fn test_load_csv_single_column() {
+        let result = load_csv_from_reader(Cursor::new("val\n1\n2\n3\n")).unwrap();
+        assert_eq!(result.headers, vec!["val"]);
+        assert_eq!(result.rows.len(), 3);
+    }
+
+    #[test]
+    fn test_load_csv_empty_lines_ignored() {
+        let result = load_csv_from_reader(Cursor::new("a,b\n1,2\n\n3,4\n")).unwrap();
+        assert_eq!(result.headers, vec!["a", "b"]);
+        assert_eq!(result.rows.len(), 2);
+    }
+
+    #[test]
+    fn test_load_csv_unicode_content() {
+        let result =
+            load_csv_from_reader(Cursor::new("name,city\nAlice,Boston\n田中,東京\n")).unwrap();
+        assert_eq!(result.rows.len(), 2);
+        assert_eq!(result.rows[1][0], "田中");
+        assert_eq!(result.rows[1][1], "東京");
+    }
+
+    #[test]
+    fn test_load_data_csv_file() {
+        let path = std::env::temp_dir().join(format!(
+            "zellij-sheets-load-test-{}.csv",
+            std::process::id()
+        ));
+        fs::write(&path, "a,b\n1,2\n3,4\n").unwrap();
+
+        let data = load_data(&path).unwrap();
+        assert_eq!(data.headers, vec!["a", "b"]);
+        assert_eq!(data.rows.len(), 2);
+
+        let _ = fs::remove_file(path);
+    }
 }

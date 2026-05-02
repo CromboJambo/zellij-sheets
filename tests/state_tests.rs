@@ -3,7 +3,7 @@ use std::sync::Arc;
 use zellij_sheets::config::SheetsConfig;
 use zellij_sheets::data_loader::{DataSource, LoadedData};
 use zellij_sheets::state::{SortDirection, StatusLevel, StatusMessage, ViewMode};
-use zellij_sheets::{DataType, SearchDirection, SheetsState};
+use zellij_sheets::{cell_matches_query, DataType, SearchDirection, SheetsState};
 
 #[cfg(test)]
 mod tests {
@@ -573,6 +573,291 @@ mod tests {
         assert_eq!(state.selected_col(), 0);
         assert_eq!(state.col_offset(), 0);
     }
+
+    // ===================================================================
+    // Search edge cases
+    // ===================================================================
+
+    #[test]
+    fn test_state_search_backspace_removes_last_char() {
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.resize(40, 12);
+        state.init(sample_loaded_data(3, 3)).unwrap();
+
+        state.begin_search(SearchDirection::Forward);
+        state.search_append('a');
+        state.search_append('b');
+        state.search_append('c');
+        assert_eq!(state.get_search_query(), Some("abc"));
+
+        state.search_backspace();
+        assert_eq!(state.get_search_query(), Some("ab"));
+
+        state.search_backspace();
+        state.search_backspace();
+        assert_eq!(state.get_search_query(), Some(""));
+    }
+
+    #[test]
+    fn test_state_search_cancel_clears_query() {
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.resize(40, 12);
+        state.init(sample_loaded_data(3, 3)).unwrap();
+
+        state.begin_search(SearchDirection::Forward);
+        state.search_append('x');
+        assert!(state.is_search_active());
+
+        state.search_cancel();
+        assert!(!state.is_search_active());
+        assert_eq!(state.get_search_query(), None);
+    }
+
+    #[test]
+    fn test_state_search_not_found_returns_false() {
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.resize(40, 12);
+        state
+            .init(LoadedData {
+                headers: vec!["a".into(), "b".into()],
+                rows: vec![vec!["one".into(), "two".into()]],
+                source: DataSource::Csv,
+            })
+            .unwrap();
+
+        state.set_search_query(Some("zzzzz".to_string()));
+        assert!(!state.search_next());
+        assert_eq!(state.selected_row(), 0);
+        assert_eq!(state.selected_col(), 0);
+        assert_eq!(state.status_messages().len(), 1);
+    }
+
+    #[test]
+    fn test_state_search_wrap_around_from_last_cell() {
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.resize(40, 12);
+        state
+            .init(LoadedData {
+                headers: vec!["x".into(), "y".into()],
+                rows: vec![
+                    vec!["start".into(), "mid".into()],
+                    vec!["end".into(), "wrap".into()],
+                ],
+                source: DataSource::Csv,
+            })
+            .unwrap();
+
+        state.go_to_bottom();
+        state.go_to_last_col();
+        assert_eq!(state.selected_row(), 1);
+        assert_eq!(state.selected_col(), 1);
+
+        state.set_search_query(Some("start".to_string()));
+        assert!(state.search_next());
+        assert_eq!(state.selected_row(), 0);
+        assert_eq!(state.selected_col(), 0);
+    }
+
+    #[test]
+    fn test_state_search_case_insensitive() {
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.resize(40, 12);
+        state
+            .init(LoadedData {
+                headers: vec!["name".into()],
+                rows: vec![vec!["Alice".into()], vec!["bob".into()]],
+                source: DataSource::Csv,
+            })
+            .unwrap();
+
+        state.set_search_query(Some("alice".to_string()));
+        assert!(state.search_next());
+        assert_eq!(state.selected_row(), 0);
+    }
+
+    // ===================================================================
+    // Navigation with data
+    // ===================================================================
+
+    #[test]
+    fn test_state_page_down_with_data() {
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.resize(40, 12);
+        state.init(sample_loaded_data(50, 3)).unwrap();
+
+        state.page_down();
+        assert_eq!(state.selected_row(), 10);
+        assert!(state.scroll_row() > 0);
+
+        state.page_down();
+        assert_eq!(state.selected_row(), 20);
+    }
+
+    #[test]
+    fn test_state_page_up_with_data() {
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.resize(40, 12);
+        state.init(sample_loaded_data(50, 3)).unwrap();
+
+        state.go_to_bottom();
+        assert_eq!(state.selected_row(), 49);
+
+        state.page_up();
+        assert!(state.selected_row() < 49);
+    }
+
+    #[test]
+    fn test_state_go_to_top_bottom_with_data() {
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.resize(40, 12);
+        state.init(sample_loaded_data(30, 4)).unwrap();
+
+        state.go_to_bottom();
+        assert_eq!(state.selected_row(), 29);
+
+        state.go_to_top();
+        assert_eq!(state.selected_row(), 0);
+        assert_eq!(state.scroll_row(), 0);
+    }
+
+    #[test]
+    fn test_state_scroll_past_end_clamps() {
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.resize(40, 12);
+        state.init(sample_loaded_data(5, 3)).unwrap();
+
+        for _ in 0..100 {
+            state.scroll_down();
+        }
+        assert!(state.scroll_row() < state.row_count());
+
+        state.select_down();
+        state.select_down();
+        assert!(state.selected_row() < state.row_count());
+    }
+
+    #[test]
+    fn test_state_cursor_clamps_on_resize_shrink() {
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state.resize(40, 50);
+        state.init(sample_loaded_data(40, 6)).unwrap();
+
+        state.go_to_bottom();
+        assert_eq!(state.selected_row(), 39);
+
+        state.resize(40, 10);
+        assert!(state.selected_row() < state.row_count());
+        assert!(state.scroll_row() < state.row_count());
+    }
+
+    // ===================================================================
+    // Cell accessors
+    // ===================================================================
+
+    #[test]
+    fn test_state_get_cell() {
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state
+            .init(LoadedData {
+                headers: vec!["a".into(), "b".into()],
+                rows: vec![vec!["x".into(), "y".into()], vec!["z".into(), "w".into()]],
+                source: DataSource::Csv,
+            })
+            .unwrap();
+
+        assert_eq!(state.get_cell(0, 0), Some("x".to_string()));
+        assert_eq!(state.get_cell(1, 1), Some("w".to_string()));
+        assert_eq!(state.get_cell(99, 0), None);
+        assert_eq!(state.get_cell(0, 99), None);
+    }
+
+    #[test]
+    fn test_state_get_row() {
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state
+            .init(LoadedData {
+                headers: vec!["a".into(), "b".into()],
+                rows: vec![vec!["x".into(), "y".into()]],
+                source: DataSource::Csv,
+            })
+            .unwrap();
+
+        assert_eq!(
+            state.get_row(0),
+            Some(vec!["x".to_string(), "y".to_string()])
+        );
+        assert_eq!(state.get_row(1), None);
+    }
+
+    #[test]
+    fn test_state_get_data_type() {
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+        state
+            .init(LoadedData {
+                headers: vec!["num".into(), "bool".into(), "str".into(), "empty".into()],
+                rows: vec![
+                    vec!["42".into(), "true".into(), "hello".into(), "".into()],
+                    vec!["3.14".into(), "false".into(), "world".into(), "".into()],
+                ],
+                source: DataSource::Csv,
+            })
+            .unwrap();
+
+        assert_eq!(state.get_data_type(0), Some(DataType::Number));
+        assert_eq!(state.get_data_type(1), Some(DataType::Boolean));
+        assert_eq!(state.get_data_type(2), Some(DataType::String));
+        assert_eq!(state.get_data_type(3), Some(DataType::Empty));
+        assert_eq!(state.get_data_type(99), None);
+    }
+
+    // ===================================================================
+    // Quit and status
+    // ===================================================================
+
+    #[test]
+    fn test_state_quit_adds_status_message() {
+        let config = Arc::new(SheetsConfig::default());
+        let mut state = SheetsState::new(config);
+
+        state.quit();
+        assert_eq!(state.status_messages().len(), 1);
+        assert_eq!(state.status_messages()[0].message, "Exiting");
+    }
+
+    // ===================================================================
+    // cell_matches_query
+    // ===================================================================
+
+    #[test]
+    fn test_cell_matches_query_case_insensitive() {
+        assert!(cell_matches_query("Hello World", "hello"));
+        assert!(cell_matches_query("hello", "HELLO"));
+        assert!(!cell_matches_query("hello", "xyz"));
+    }
+
+    #[test]
+    fn test_cell_matches_query_substring() {
+        assert!(cell_matches_query("foobar", "oba"));
+        assert!(cell_matches_query("foobar", "foo"));
+        assert!(cell_matches_query("foobar", "bar"));
+    }
+
+    // ===================================================================
+    // Helpers
+    // ===================================================================
 
     fn infer_data_type(value: &str) -> DataType {
         let trimmed = value.trim();
