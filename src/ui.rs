@@ -105,6 +105,15 @@ impl UiRenderer {
             ViewMode::Raw => "raw",
         };
 
+        let layouts =
+            crate::layout::LayoutEngine::new().resolve(&state.layout_cache, state.width());
+        let left_padding = layouts
+            .iter()
+            .take(state.col_offset())
+            .map(|l| l.resolved_width + 3)
+            .sum::<usize>()
+            .saturating_sub(3);
+
         let header = format!(
             "{}{}Zellij Sheets{} | {} | {} rows | {}{}",
             header_style,
@@ -115,7 +124,7 @@ impl UiRenderer {
             state.row_count(),
             reset
         );
-        Ok(header)
+        Ok(format!("{}{}", " ".repeat(left_padding), header))
     }
 
     fn draw_data_rows(&self, lines: &mut Vec<String>, state: &SheetsState) -> Result<(), UiError> {
@@ -178,6 +187,13 @@ impl UiRenderer {
     ) -> String {
         let theme = self.get_theme();
 
+        let left_padding = layouts
+            .iter()
+            .take(state.col_offset())
+            .map(|l| l.resolved_width + 3)
+            .sum::<usize>()
+            .saturating_sub(3);
+
         let cells = values
             .iter()
             .enumerate()
@@ -214,11 +230,11 @@ impl UiRenderer {
             .join(" | ");
 
         if is_header {
-            cells
+            format!("{}{}", " ".repeat(left_padding), cells)
         } else if row_index == Some(state.selected_row()) {
-            format!(">{cells}")
+            format!("{}>{cells}", " ".repeat(left_padding))
         } else {
-            format!(" {cells}")
+            format!("{} {cells}", " ".repeat(left_padding))
         }
     }
 
