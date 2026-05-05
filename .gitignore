@@ -2,4 +2,4 @@
 Cargo.lock
 state-docs/
 *.bak
-*AGENT.md
+*AGENT*.md

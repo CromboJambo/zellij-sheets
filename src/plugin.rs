@@ -1,10 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use zellij_sheets::{
-    cell_matches_query, fit_cell, ColumnLayout, LayoutEngine, SearchDirection, SheetsConfig,
-    SheetsState,
-};
+use zellij_sheets::{SearchDirection, SheetsConfig, SheetsState, UiRenderer};
 use zellij_tile::prelude::*;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -12,13 +9,6 @@ enum InputMode {
     #[default]
     Normal,
     Search,
-}
-
-/// First key of a two-key sequence.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PendingKey {
-    /// `g` was pressed; waiting for a second `g` to go-to-top.
-    LowercaseG,
 }
 
 #[derive(Default)]
